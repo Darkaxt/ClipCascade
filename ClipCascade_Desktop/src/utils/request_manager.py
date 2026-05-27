@@ -172,6 +172,31 @@ class RequestManager:
             logging.error(f"Error fetching CSRF token: {e}")
             return ""
 
+    def validate_session(self):
+        try:
+            cookie = self.config.data.get("cookie")
+            if not cookie:
+                return False
+
+            response = requests.get(
+                self.config.data["server_url"] + VALIDATE_SESSION_URL,
+                headers={"Cookie": RequestManager.format_cookie(cookie)},
+                verify=self._verify(),
+                allow_redirects=False,
+                timeout=5,
+            )
+            if response.status_code == 200:
+                return True
+            if response.status_code in {301, 302, 303, 307, 308, 401, 403}:
+                return False
+            logging.warning(
+                f"Unable to validate session: HTTP {response.status_code}"
+            )
+            return None
+        except Exception as e:
+            logging.warning(f"Unable to validate session: {e}")
+            return None
+
     @staticmethod
     def get(url: str, headers: dict = None, verify=True) -> requests.Response:
         """

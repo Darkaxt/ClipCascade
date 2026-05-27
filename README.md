@@ -43,6 +43,7 @@ Windows client changes in this fork:
 - The activity view shows memory-only rows for local detection, sends, remote receives, local applies, ignored duplicates, and errors.
 - The normal log records privacy-safe activity metadata only, such as `Local Image Sent via P2S`, without copied text previews or file contents.
 - Persisted `DATA` files with stale HTTP(S) websocket URLs are repaired before saved-cookie reconnects.
+- Expired saved server sessions are detected before WebSocket reconnect, so the Windows client stops retrying a dead cookie and asks for a fresh login.
 - Windows desktop image payloads are normalized to PNG before sending, avoiding Android decode failures from raw Windows `DIB` clipboard images.
 
 <div align="center">

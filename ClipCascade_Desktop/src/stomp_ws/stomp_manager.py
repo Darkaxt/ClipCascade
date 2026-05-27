@@ -31,6 +31,7 @@ class STOMPManager(WSInterface):
         )
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
+        self.request_manager = RequestManager(self.config)
         self.sys_tray: TaskbarPanel = None
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
@@ -58,6 +59,24 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 return True, ""
+
+            session_valid = self.request_manager.validate_session()
+            if session_valid is False:
+                msg = "Session expired; please log in again"
+                logging.error(msg)
+                self.disconnected = True
+                self.is_auto_reconnecting = False
+                self.is_connected = False
+                self.config.data["cookie"] = None
+                self.config.data["csrf_token"] = ""
+                self.config.save()
+                if not self.is_login_phase:
+                    self.notification_manager.notify(
+                        title=f"{APP_NAME}: Session Expired",
+                        message="Open ClipCascade and log in again.",
+                    )
+                return False, msg
+
             self.client = Client(
                 self.config.data["websocket_url"],
                 headers={
