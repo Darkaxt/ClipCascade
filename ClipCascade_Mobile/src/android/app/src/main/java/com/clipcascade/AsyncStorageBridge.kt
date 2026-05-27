@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\AsyncStorageBridge.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.Context
 import android.content.ContentValues

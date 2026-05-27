@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

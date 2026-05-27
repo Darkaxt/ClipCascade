@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\BootReceiver.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.BroadcastReceiver
 import android.content.Context

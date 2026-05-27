@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\MainApplication.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.app.Application
 import com.facebook.react.PackageList

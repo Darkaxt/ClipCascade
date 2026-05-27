@@ -4,6 +4,23 @@
 
 **No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
 
+## Darkaxt Android Fork
+
+This fork currently focuses on the Android APK. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
+
+Version `3.2.0.1` means upstream ClipCascade `3.2.0` plus fork revision `.1`.
+
+Android resilience changes in this fork:
+
+- The foreground-service watchdog now waits up to 20 seconds before marking the JS service inactive, reducing false inactive-service popups while the service is busy.
+- A missed startup heartbeat no longer gets converted into a persisted stop command.
+- The service clears stale inactive-service notifications when it answers watchdog pings.
+- Tapping the inactive-service notification can restart the service even if the app is already open.
+- The connected screen includes a **Restart Service** button and a settings panel, so service settings can be adjusted without logging out.
+- Runtime settings are polled by the foreground service, and WorkManager periodic checks can be toggled from the connected screen.
+
+Large payload note: the server can be configured for very large messages, but Android still has to hold encrypted/base64 payloads in app memory. Keep the local clipboard-size limit aligned with what the phone can actually handle.
+
 <div align="center">
 
 <table>
@@ -31,7 +48,7 @@
       </a>
     </td>
     <td>
-      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+      <a href="https://github.com/Darkaxt/ClipCascade/releases">
         <img src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg" alt="Android" width="40" />
       </a>
     </td>
@@ -359,7 +376,7 @@ python3 -m PyInstaller ClipCascade_macos.spec
 
 To install the ClipCascade mobile application on your Android device, follow these steps:
 
-1. **Download** the latest APK from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+1. **Download** the latest APK from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases).
 2. **Enable** installation from unknown sources in your device settings, if prompted.
 3. **Install** the APK by following the prompts on your device.
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
@@ -379,18 +396,18 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 
 1. **Grant the `READ_LOGS` permission:**
    ```bash
-   adb -d shell pm grant com.clipcascade android.permission.READ_LOGS
+   adb -d shell pm grant com.darkaxt.clipcascade android.permission.READ_LOGS
    ```
 
 2. **Enable "Display/Drawing over other apps," "Screen overlay," or "Appear on top":**
    This permission can also be enabled from the device's Settings. To set it via ADB, use:
    ```bash
-   adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow
+   adb -d shell appops set com.darkaxt.clipcascade SYSTEM_ALERT_WINDOW allow
    ```
 
 3. **Kill the app for the new permissions to take effect:**
    ```bash
-   adb -d shell am force-stop com.clipcascade
+   adb -d shell am force-stop com.darkaxt.clipcascade
    ```
 ![adb commands](https://github.com/user-attachments/assets/3faa8d71-d099-48d5-9846-4683cf77f285)
 
@@ -1086,12 +1103,12 @@ Defines the STOMP broker password for external message handling.
   - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
-  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission popup being dismissed, which prevents clipboard monitoring in the background.
   - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
     
     <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
 
-  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service. In this fork, these Android settings can also be changed from the connected screen without logging out.
     
     <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
 
@@ -1306,4 +1323,3 @@ Example versioning:
 ## 💬 Support
 
 If you have any issues or questions, feel free to open an issue on GitHub, start a discussion, or reach out to me via [email](mailto:sathvik.poladi@gmail.com).
-

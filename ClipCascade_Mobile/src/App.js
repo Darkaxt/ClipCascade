@@ -33,6 +33,12 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {
+  getStartupServiceState,
+  probeForegroundService,
+  shouldPersistStoppedStateAfterSessionValidation,
+} from './ServiceHealth';
+import { shouldShowNewVersion } from './VersionCheck';
 
 /*
  * These files are part of the ClipCascade project.
@@ -60,7 +66,7 @@ import StartForegroundService from './StartForegroundService';
  */
 
 // App version
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.2.0.1';
 
 // Main App
 export default function App() {
@@ -84,14 +90,13 @@ export default function App() {
   const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
   const STUN_URL = '/stun-url';
   const VERSION_URL =
-    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json';
-  const GITHUB_URL = 'https://github.com/Sathvik-Rao/ClipCascade';
-  const RELEASE_URL =
-    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest';
-  const APP_NAME = 'ClipCascade';
+    'https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/version.json';
+  const GITHUB_URL = 'https://github.com/Darkaxt/ClipCascade';
+  const RELEASE_URL = 'https://github.com/Darkaxt/ClipCascade/releases/latest';
+  const APP_NAME = 'ClipCascade Darkaxt';
   const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
   const METADATA_URL =
-    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json';
+    'https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/metadata.json';
 
   // Request permissions for notifications
   PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
@@ -180,6 +185,7 @@ export default function App() {
       if (result[0] === false) {
         throw result[1];
       }
+      NativeBridgeModule.clearInactiveServiceNotification();
     } catch (e) {
       throw e;
     }
@@ -211,6 +217,8 @@ export default function App() {
         isMountedRef.current = true;
         pollUIFlags();
 
+        let startupServiceState = null;
+
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
@@ -227,27 +235,25 @@ export default function App() {
         }
         // check if foreground service is running
         if (wsIsRunning_s === 'true') {
-          let foregroundServiceIsActive = false;
-
           setLoadingPageMessage('Checking foreground service...');
-          await setDataInAsyncStorage('echo', 'ping');
-          let iterate = 35; //3500 ms
-          while (iterate > 0) {
-            await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
-            const echo = await getDataFromAsyncStorage('echo');
-            if (echo && echo === 'pong') {
-              foregroundServiceIsActive = true;
-              break;
-            }
-            iterate--;
-          }
-          if (!foregroundServiceIsActive) {
-            wsIsRunning_s = 'false';
+          const foregroundServiceIsActive = await probeForegroundService({
+            setData: setDataInAsyncStorage,
+            getData: getDataFromAsyncStorage,
+          });
+          startupServiceState = getStartupServiceState(
+            wsIsRunning_s,
+            foregroundServiceIsActive,
+          );
+          wsIsRunning_s = startupServiceState.wsIsRunningForUi;
+          if (startupServiceState.statusMessage !== '') {
             await clearFiles();
             await setDataInAsyncStorage(
               'wsStatusMessage',
-              '⚠️ Foreground service stopped running',
+              startupServiceState.statusMessage,
             );
+          }
+          if (startupServiceState.shouldPersistWsIsRunning) {
+            await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
           }
         }
         setWsIsRunning(wsIsRunning_s);
@@ -260,12 +266,18 @@ export default function App() {
           await setDataInAsyncStorage('p2pStatusMessage', '');
           //validate session
           setLoadingPageMessage('Verifying Session...');
-          validResult = await validateSession(data_s);
+          const validResult = await validateSession(data_s);
           setEnableLoadingPage(false);
           if (validResult[0]) {
             //enable websocket page
             setEnableWSPage(true);
-            setDataInAsyncStorage('wsIsRunning', 'false');
+            if (
+              shouldPersistStoppedStateAfterSessionValidation(
+                startupServiceState,
+              )
+            ) {
+              await setDataInAsyncStorage('wsIsRunning', 'false');
+            }
             // start foreground service (work manager notification click handler)
             if (
               foregroundServiceStoppedRunning &&
@@ -299,7 +311,7 @@ export default function App() {
             throw new Error('Network response was not ok');
           }
           const data = await response.json();
-          if (data && data.android !== APP_VERSION) {
+          if (data && shouldShowNewVersion(APP_VERSION, data.android)) {
             setNewVersionAvailable([true, data.android]);
           }
         } catch (e) {
@@ -346,6 +358,8 @@ export default function App() {
       };
       clearWSStatusMessage();
     };
+  // The app intentionally runs this bootstrapping flow once on mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Function to convert a server URL to a WebSocket URL
@@ -573,7 +587,7 @@ export default function App() {
 
         // Hash the password for encryption
         if (data_s.cipher_enabled === 'true') {
-          hashResult = await hash(data_s, password);
+          const hashResult = await hash(data_s, password);
           data_s = hashResult[2];
           if (!hashResult[0]) {
             return [
@@ -667,11 +681,26 @@ export default function App() {
       'server_mode',
       'p2pStatusMessage',
       'filesAvailableToDownload',
+      'foreground_service_stopped_running',
     ];
 
     while (isMountedRef.current) {
-      const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
-      const latest = JSON.parse(json);
+      let latest;
+      try {
+        const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
+        latest = JSON.parse(json);
+      } catch (error) {
+        await sleep(1000);
+        continue;
+      }
+
+      if (latest.foreground_service_stopped_running === 'true') {
+        await setDataInAsyncStorage(
+          'foreground_service_stopped_running',
+          'false',
+        );
+        await restartForegroundService();
+      }
 
       if (latest.wsIsRunning === 'true') {
         // Websocket status message
@@ -706,7 +735,7 @@ export default function App() {
         setWsPageMessage('');
         setWsPageP2PMessage('');
         await clearFiles();
-        wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -736,6 +765,43 @@ export default function App() {
       setWsPageMessage('❌ Error: ' + error);
     } finally {
       await setDataInAsyncStorage('enableWSButton', 'true');
+    }
+  };
+
+  const restartForegroundService = async () => {
+    try {
+      if ((await getDataFromAsyncStorage('enableWSButton')) === 'true') {
+        await setDataInAsyncStorage('enableWSButton', 'false');
+        setWsPageMessage('Restarting foreground service...');
+        setWsPageP2PMessage('');
+        await clearFiles();
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
+        await setDataInAsyncStorage('wsIsRunning', 'true');
+        await setDataInAsyncStorage('wsStatusMessage', '');
+        await setDataInAsyncStorage('p2pStatusMessage', '');
+        setWsIsRunning('true');
+        await onDisplayNotification();
+        await NativeBridgeModule.clearImageCache();
+      }
+    } catch (error) {
+      setWsPageMessage('❌ Error: ' + error);
+    } finally {
+      await setDataInAsyncStorage('enableWSButton', 'true');
+    }
+  };
+
+  const applyRuntimeSettings = async () => {
+    try {
+      setWsPageMessage('Saving settings...');
+      await setAsyncStorage(data);
+      if (data.enable_periodic_checks === 'false') {
+        NativeBridgeModule.stopWorkManager();
+      } else {
+        NativeBridgeModule.startWorkManager();
+      }
+      setWsPageMessage('✅ Settings saved');
+    } catch (error) {
+      setWsPageMessage('❌ Error saving settings: ' + error);
     }
   };
 
@@ -845,6 +911,7 @@ export default function App() {
   /* Websocket Page Handlers */
   // State to manage websocket page visibility
   const [enableWSPage, setEnableWSPage] = useState(false);
+  const [showWSSettings, setShowWSSettings] = useState(false);
 
   // State to manage websocket status
   const [wsIsRunning, setWsIsRunning] = useState('false');
@@ -1149,6 +1216,19 @@ export default function App() {
             >
               <Text style={styles.loginButtonText}>Logout</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.loginButton, { backgroundColor: '#005c78' }]}
+              onPress={restartForegroundService}
+            >
+              <Text style={styles.loginButtonText}>Restart Service</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowWSSettings(!showWSSettings)}
+            >
+              <Text style={styles.linkText}>
+                {showWSSettings ? 'Hide Settings' : 'Settings'}
+              </Text>
+            </TouchableOpacity>
             {/* Display websocket status message */}
             {wsPageMessage !== '' && (
               <Text style={styles.message}>{wsPageMessage}</Text>
@@ -1156,6 +1236,90 @@ export default function App() {
             {/* Display p2p status message */}
             {wsPageP2PMessage !== '' && (
               <Text style={styles.message}>{wsPageP2PMessage}</Text>
+            )}
+            {showWSSettings && (
+              <>
+                <View style={styles.row}>
+                  <Text style={styles.label}>
+                    Maximum Clipboard Size Local Limit (in bytes):
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={data.max_clipboard_size_local_limit_bytes}
+                    onChangeText={text =>
+                      handleInputChange(
+                        'max_clipboard_size_local_limit_bytes',
+                        isNaN(Number(text))
+                          ? data.max_clipboard_size_local_limit_bytes
+                          : text.trim(),
+                      )
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Run on system startup:</Text>
+                  <CheckBox
+                    value={data.relaunch_on_boot === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('relaunch_on_boot', String(newValue))
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>
+                    Enable WebSocket Status Notification:
+                  </Text>
+                  <CheckBox
+                    value={
+                      data.enable_websocket_status_notification === 'true'
+                        ? true
+                        : false
+                    }
+                    onValueChange={newValue =>
+                      handleInputChange(
+                        'enable_websocket_status_notification',
+                        String(newValue),
+                      )
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Enable Periodic Checks:</Text>
+                  <CheckBox
+                    value={data.enable_periodic_checks === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange(
+                        'enable_periodic_checks',
+                        String(newValue),
+                      )
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Enable Image Sharing:</Text>
+                  <CheckBox
+                    value={data.enable_image_sharing === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('enable_image_sharing', String(newValue))
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Enable File Sharing:</Text>
+                  <CheckBox
+                    value={data.enable_file_sharing === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('enable_file_sharing', String(newValue))
+                    }
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.loginButton, { backgroundColor: '#006b3c' }]}
+                  onPress={applyRuntimeSettings}
+                >
+                  <Text style={styles.loginButtonText}>Save Settings</Text>
+                </TouchableOpacity>
+              </>
             )}
             {/* File download button */}
             {enableFilesDownloadButton &&
@@ -1309,7 +1473,7 @@ export default function App() {
                       { fontWeight: 'bold', marginLeft: 15 },
                     ]}
                   >
-                    {`> adb -d shell pm grant com.clipcascade android.permission.READ_LOGS`}
+                    {`> adb -d shell pm grant com.darkaxt.clipcascade android.permission.READ_LOGS`}
                   </Text>
 
                   <Text style={styles.label}>
@@ -1323,7 +1487,7 @@ export default function App() {
                       { fontWeight: 'bold', marginLeft: 15 },
                     ]}
                   >
-                    {`> adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow`}
+                    {`> adb -d shell appops set com.darkaxt.clipcascade SYSTEM_ALERT_WINDOW allow`}
                   </Text>
 
                   <Text style={styles.label}>
@@ -1336,7 +1500,7 @@ export default function App() {
                       { fontWeight: 'bold', marginLeft: 15 },
                     ]}
                   >
-                    {`> adb -d shell am force-stop com.clipcascade`}
+                    {`> adb -d shell am force-stop com.darkaxt.clipcascade`}
                   </Text>
                 </View>
               </View>

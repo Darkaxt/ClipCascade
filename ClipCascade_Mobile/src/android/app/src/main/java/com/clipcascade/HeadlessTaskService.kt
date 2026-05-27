@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\HeadlessTaskService.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.Intent
 import com.facebook.react.HeadlessJsTaskService

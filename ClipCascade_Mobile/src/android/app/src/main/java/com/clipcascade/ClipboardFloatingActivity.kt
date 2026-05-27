@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.ClipboardManager
 import android.content.Context

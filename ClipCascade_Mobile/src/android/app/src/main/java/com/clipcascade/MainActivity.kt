@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\MainActivity.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.Intent
 import android.os.Bundle
@@ -138,7 +138,7 @@ class MainActivity : ReactActivity() {
         }
 
         // custom notification action
-        if ("com.clipcascade.NOTIFICATION_ACTION" == intent.action) {
+        if ("com.darkaxt.clipcascade.NOTIFICATION_ACTION" == intent.action) {
             val action = intent.getStringExtra("action")
             if (action == "foreground_service_stopped_running") {
                 try {

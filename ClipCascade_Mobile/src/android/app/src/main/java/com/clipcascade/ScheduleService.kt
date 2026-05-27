@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\ScheduleService.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.Context
 import android.content.Intent
@@ -72,8 +72,8 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
     suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {
         // check if foreground service is running
         bridgeData.setValue("echo", "ping")
-        repeat(35) { // 3500 ms
-            delay(100) // Wait for 100 ms
+        repeat(80) { // 20000 ms
+            delay(250) // Wait for 250 ms
             if (bridgeData.getValue("echo") == "pong") {
                 return true
             }
@@ -96,7 +96,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         // Check if the notification is already shown
         if (!isNotificationActive(notificationManager)) {
             val intent = Intent(applicationContext, MainActivity::class.java).apply {
-                action = "com.clipcascade.NOTIFICATION_ACTION"
+                action = "com.darkaxt.clipcascade.NOTIFICATION_ACTION"
                 putExtra("action", "foreground_service_stopped_running")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }

@@ -1,3 +1,4 @@
+/* global TextEncoder, TextDecoder */
 import {
   NativeEventEmitter,
   NativeModules,
@@ -24,6 +25,10 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import {
+  normalizeRuntimeSettings,
+  resolveClipboardLimit,
+} from './ServiceHealth';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -65,17 +70,7 @@ module.exports = async (inputData = null) => {
         let isP2PStatusMsgChanged = false;
 
         // get data from async storage
-        const {
-          websocket_url,
-          cipher_enabled,
-          maxsize: maxsizeStr,
-          server_mode,
-          stun_url,
-          enable_image_sharing,
-          enable_file_sharing,
-          enable_websocket_status_notification,
-          max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
-        } = await getMultipleDataFromAsyncStorage([
+        const initialSettings = await getMultipleDataFromAsyncStorage([
           'websocket_url',
           'cipher_enabled',
           'maxsize',
@@ -87,11 +82,28 @@ module.exports = async (inputData = null) => {
           'max_clipboard_size_local_limit_bytes',
         ]);
 
+        const {
+          websocket_url,
+          cipher_enabled,
+          maxsize: maxsizeStr,
+          server_mode,
+          stun_url,
+          enable_image_sharing,
+          enable_file_sharing,
+          enable_websocket_status_notification,
+          max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
+        } = initialSettings;
+
         const maxsize = Number(maxsizeStr);
-        let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
-        if (max_clipboard_size_local_limit_bytes === 0) {
-          max_clipboard_size_local_limit_bytes = maxsize;
-        }
+        let runtimeSettings = {
+          enable_image_sharing,
+          enable_file_sharing,
+          enable_websocket_status_notification,
+          max_clipboard_size_local_limit_bytes: resolveClipboardLimit(
+            maxClipboardLimitStr,
+            maxsize,
+          ),
+        };
 
         // encrption
         const encrypt = async plainText => {
@@ -214,7 +226,8 @@ module.exports = async (inputData = null) => {
           if (server_mode === 'P2S') {
             if (
               clipContentByteLength <= maxsize &&
-              clipContentByteLength <= max_clipboard_size_local_limit_bytes
+              clipContentByteLength <=
+                runtimeSettings.max_clipboard_size_local_limit_bytes
             ) {
               return true;
             }
@@ -227,13 +240,14 @@ module.exports = async (inputData = null) => {
                 ' bytes) exceeds limits; Server max size (' +
                 maxsize +
                 ' bytes) or Local max size (' +
-                max_clipboard_size_local_limit_bytes +
+                runtimeSettings.max_clipboard_size_local_limit_bytes +
                 ' bytes)',
             );
           } else if (server_mode === 'P2P') {
             if (
-              max_clipboard_size_local_limit_bytes < 0 ||
-              clipContentByteLength <= max_clipboard_size_local_limit_bytes
+              runtimeSettings.max_clipboard_size_local_limit_bytes < 0 ||
+              clipContentByteLength <=
+                runtimeSettings.max_clipboard_size_local_limit_bytes
             ) {
               return true;
             }
@@ -244,7 +258,7 @@ module.exports = async (inputData = null) => {
               ' clipboard ignored: size (' +
               clipContentByteLength +
               ' bytes) exceeds limits; Local max size (' +
-              max_clipboard_size_local_limit_bytes +
+              runtimeSettings.max_clipboard_size_local_limit_bytes +
               ' bytes)';
             await p2pStatusMessageChanged();
           }
@@ -450,7 +464,9 @@ module.exports = async (inputData = null) => {
                 }
               });
 
-              if (enable_websocket_status_notification === 'true') {
+              if (
+                runtimeSettings.enable_websocket_status_notification === 'true'
+              ) {
                 if (websocket_status_notification_toggle == true) {
                   websocket_status_notification_toggle = false;
                   await showWebSocketStatusNotification(
@@ -489,7 +505,8 @@ module.exports = async (inputData = null) => {
                 `⚠️ WebSocket Close: ${reason}`,
               );
               if (
-                enable_websocket_status_notification === 'true' &&
+                runtimeSettings.enable_websocket_status_notification ===
+                  'true' &&
                 websocket_status_notification_toggle == false &&
                 (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
               ) {
@@ -511,8 +528,10 @@ module.exports = async (inputData = null) => {
               await clearFiles();
               if (stompClient && stompClient.connected && !toggle) {
                 if (
-                  (type_ === 'image' && enable_image_sharing === 'false') ||
-                  (type_ === 'files' && enable_file_sharing === 'false')
+                  (type_ === 'image' &&
+                    runtimeSettings.enable_image_sharing === 'false') ||
+                  (type_ === 'files' &&
+                    runtimeSettings.enable_file_sharing === 'false')
                 ) {
                   return;
                 }
@@ -526,7 +545,7 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
+                    const temp = {};
                     const file_paths = clipContent
                       .split(',')
                       .filter(item => item.trim() !== '');
@@ -751,7 +770,10 @@ module.exports = async (inputData = null) => {
 
                 await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
-                if (enable_websocket_status_notification === 'true') {
+                if (
+                  runtimeSettings.enable_websocket_status_notification ===
+                  'true'
+                ) {
                   if (websocket_status_notification_toggle == true) {
                     websocket_status_notification_toggle = false;
                     await showWebSocketStatusNotification(
@@ -826,7 +848,8 @@ module.exports = async (inputData = null) => {
                   '⚠️ WebSocket Close: ' + reason,
                 );
                 if (
-                  enable_websocket_status_notification === 'true' &&
+                  runtimeSettings.enable_websocket_status_notification ===
+                    'true' &&
                   websocket_status_notification_toggle == false &&
                   (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
                 ) {
@@ -858,8 +881,10 @@ module.exports = async (inputData = null) => {
             try {
               await clearFiles();
               if (
-                (type_ === 'image' && enable_image_sharing === 'false') ||
-                (type_ === 'files' && enable_file_sharing === 'false')
+                (type_ === 'image' &&
+                  runtimeSettings.enable_image_sharing === 'false') ||
+                (type_ === 'files' &&
+                  runtimeSettings.enable_file_sharing === 'false')
               ) {
                 return;
               }
@@ -871,7 +896,7 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
+                  const temp = {};
                   const file_paths = clipContent
                     .split(',')
                     .filter(item => item.trim() !== '');
@@ -1026,7 +1051,7 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
-              await clearFiles((expensiveCall = true));
+              await clearFiles(true);
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
@@ -1036,12 +1061,12 @@ module.exports = async (inputData = null) => {
               // Check if the payload exceeds the maximum size: first layer protection
               if (
                 metadata != null &&
-                max_clipboard_size_local_limit_bytes >= 0 &&
+                runtimeSettings.max_clipboard_size_local_limit_bytes >= 0 &&
                 metadata.combinedRawPayloadSizeInBytes >
-                  max_clipboard_size_local_limit_bytes
+                  runtimeSettings.max_clipboard_size_local_limit_bytes
               ) {
                 await resetReceivingFragments();
-                p2pMsg = `⚠️ Payload size limit exceeded: ${metadata['combinedRawPayloadSizeInBytes']} bytes exceeds ${max_clipboard_size_local_limit_bytes} bytes`;
+                p2pMsg = `⚠️ Payload size limit exceeded: ${metadata['combinedRawPayloadSizeInBytes']} bytes exceeds ${runtimeSettings.max_clipboard_size_local_limit_bytes} bytes`;
                 await p2pStatusMessageChanged();
                 return;
               }
@@ -1466,11 +1491,31 @@ module.exports = async (inputData = null) => {
             'echo',
             'downloadFiles',
             'filesAvailableToDownload',
+            'enable_image_sharing',
+            'enable_file_sharing',
+            'enable_websocket_status_notification',
+            'max_clipboard_size_local_limit_bytes',
           ];
 
           while (true) {
-            const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
-            const latest = JSON.parse(json);
+            let latest;
+            try {
+              const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
+              latest = JSON.parse(json);
+            } catch (error) {
+              await setDataInAsyncStorage(
+                'wsStatusMessage',
+                '⚠️ Service health polling delayed: ' + error,
+              );
+              await sleep(1000);
+              continue;
+            }
+
+            runtimeSettings = normalizeRuntimeSettings(
+              runtimeSettings,
+              latest,
+              maxsize,
+            );
 
             // check if wsIsRunning is true or else terminate the service
             if (latest.wsIsRunning !== 'true') {
@@ -1493,6 +1538,11 @@ module.exports = async (inputData = null) => {
             // check if ping initiated
             if (latest.echo === 'ping') {
               await setDataInAsyncStorage('echo', 'pong');
+              try {
+                NativeBridgeModule.clearInactiveServiceNotification();
+              } catch (error) {
+                // Clearing a stale watchdog notification must not stop syncing.
+              }
             }
 
             // check if user wants to download files
@@ -1537,9 +1587,11 @@ module.exports = async (inputData = null) => {
           }
         }
 
-        pollFlagsLoop();
+        await pollFlagsLoop();
       } catch (error) {
         await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
+        await setDataInAsyncStorage('wsIsRunning', 'false');
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
         cleanupClipboardListeners();
         await notifee.stopForegroundService();
       }

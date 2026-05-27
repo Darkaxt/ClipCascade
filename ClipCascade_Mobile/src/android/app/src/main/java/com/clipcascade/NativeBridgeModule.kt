@@ -1,11 +1,14 @@
 // android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.Promise
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequest
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import android.webkit.CookieManager
 import android.net.Uri
@@ -16,6 +19,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.serialization.decodeFromString
@@ -24,9 +28,14 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+
+    companion object {
+        private const val TAG = "NativeBridgeModule"
+    }
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
 
@@ -49,6 +58,29 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     @ReactMethod
     fun stopWorkManager() {
         WorkManager.getInstance(reactApplicationContext).cancelAllWorkByTag(MainActivity.WORK_NAME)
+    }
+
+    @ReactMethod
+    fun startWorkManager() {
+        val periodicWorkRequest: PeriodicWorkRequest = PeriodicWorkRequestBuilder<ScheduleService>(15, TimeUnit.MINUTES)
+            .addTag(MainActivity.WORK_NAME)
+            .build()
+
+        WorkManager.getInstance(reactApplicationContext)
+            .enqueueUniquePeriodicWork(
+                MainActivity.WORK_NAME,
+                ExistingPeriodicWorkPolicy.REPLACE,
+                periodicWorkRequest
+            )
+    }
+
+    @ReactMethod
+    fun clearInactiveServiceNotification() {
+        try {
+            ScheduleService.removeNotificationIfPresent(reactApplicationContext)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear inactive service notification", e)
+        }
     }
 
     @ReactMethod

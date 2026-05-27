@@ -1,6 +1,6 @@
 {
   "name": "ClipCascade",
-  "version": "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json",
+  "version": "https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/version.json",
   "description": "A lightweight utility to sync clipboard content seamlessly across devices with privacy and encryption.",
   "author": {
     "name": "Sathvik Rao",
@@ -10,7 +10,7 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sathvik-Rao/ClipCascade"
+    "url": "https://github.com/Darkaxt/ClipCascade"
   },
   "releaseDate": "2024-09-22",
   "funding": "https://www.paypal.com/donate/?business=SKHQU2CL3TCLN&no_recurring=0&item_name=Support+Sathvik-Rao%27s+open+source+work&currency_code=USD",
@@ -23,14 +23,14 @@
     "encryption"
   ],
   "bugs": {
-    "url": "https://github.com/Sathvik-Rao/ClipCascade/issues",
+    "url": "https://github.com/Darkaxt/ClipCascade/issues",
     "email": "sathvik.poladi@gmail.com"
   },
   "discussions": {
-    "url": "https://github.com/Sathvik-Rao/ClipCascade/discussions"
+    "url": "https://github.com/Darkaxt/ClipCascade/discussions"
   },
   "releases": {
-    "url": "https://github.com/Sathvik-Rao/ClipCascade/releases"
+    "url": "https://github.com/Darkaxt/ClipCascade/releases"
   },
   "platforms": {
     "server": {

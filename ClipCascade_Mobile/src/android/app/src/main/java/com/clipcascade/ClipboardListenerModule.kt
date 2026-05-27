@@ -1,5 +1,5 @@
 // android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
-package com.clipcascade
+package com.darkaxt.clipcascade
 
 import android.content.ClipboardManager
 import android.content.Context
