@@ -8,7 +8,7 @@
 
 This fork currently focuses on the Android APK. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
 
-Version `3.2.0.1` means upstream ClipCascade `3.2.0` plus fork revision `.1`.
+Version `3.2.0.2` means upstream ClipCascade `3.2.0` plus fork revision `.2`.
 
 Android resilience changes in this fork:
 
@@ -16,10 +16,24 @@ Android resilience changes in this fork:
 - A missed startup heartbeat no longer gets converted into a persisted stop command.
 - The service clears stale inactive-service notifications when it answers watchdog pings.
 - Tapping the inactive-service notification can restart the service even if the app is already open.
-- The connected screen includes a **Restart Service** button and a settings panel, so service settings can be adjusted without logging out.
+- The connected screen keeps service controls compact and shows a memory-only **Recent Clipboard Activity** log for local send, receive, apply, ignored, and error events.
+- Settings now live in dedicated **Sync**, **Service**, **Performance**, and **Help** pages, so service settings can be adjusted without logging out.
 - Runtime settings are polled by the foreground service, and WorkManager periodic checks can be toggled from the connected screen.
+- The Android app includes an optional strict Shizuku clipboard backend for automatic outbound capture. If enabled and Shizuku is unavailable, Android outbound capture pauses without stopping inbound remote clipboard receiving.
+- Echo suppression prevents Android from immediately re-sending clipboard content that it just received from another ClipCascade client.
+- Windows desktop image payloads are normalized to PNG before sending, avoiding Android decode failures from raw Windows `DIB` clipboard images.
 
 Large payload note: the server can be configured for very large messages, but Android still has to hold encrypted/base64 payloads in app memory. Keep the local clipboard-size limit aligned with what the phone can actually handle.
+
+### Android Fork Screens
+
+| Connected home | Settings | Sync |
+| --- | --- | --- |
+| <img src="docs/android-screenshots/android-home.png" alt="Android connected home with service controls and activity log" width="260" /> | <img src="docs/android-screenshots/android-settings-home.png" alt="Android Settings category list" width="260" /> | <img src="docs/android-screenshots/android-settings-sync.png" alt="Android Sync settings page" width="260" /> |
+
+| Service | Performance | Help |
+| --- | --- | --- |
+| <img src="docs/android-screenshots/android-settings-service.png" alt="Android Service settings page" width="260" /> | <img src="docs/android-screenshots/android-settings-performance.png" alt="Android Performance settings page" width="260" /> | <img src="docs/android-screenshots/android-settings-help.png" alt="Android Help settings page" width="260" /> |
 
 <div align="center">
 
@@ -382,11 +396,29 @@ To install the ClipCascade mobile application on your Android device, follow the
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
-    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - After logging in, use the top-right gear button to open **Settings**.
+    - **Sync** contains the local clipboard size limit, image sharing, and file sharing.
+    - **Service** contains startup behavior, status notifications, periodic checks, and the optional Shizuku clipboard backend.
+    - **Performance** contains battery optimization and power manager shortcuts.
+    - **Help** contains Android 10+ clipboard notes and the legacy ADB setup commands.
 
 #### Android Automatic Clipboard Monitoring Setup:
 
-ClipCascade supports automatic clipboard monitoring for both rooted and non-rooted devices. To activate this feature, execute the following ADB commands.
+ClipCascade has two Android automatic outbound clipboard capture backends:
+
+- **Shizuku backend:** recommended for this fork. Enable it from **Settings** -> **Service** -> **Use Shizuku clipboard backend**, then approve ClipCascade in Shizuku. This backend is strict: if Shizuku is disconnected, unauthorized, unsupported, or not installed, Android automatic outbound capture pauses and the app records a status event. Remote clipboard receiving remains active, so Windows-to-Android sync can continue.
+- **Legacy backend:** uses `READ_LOGS` plus the overlay permission. Keep **Use Shizuku clipboard backend** disabled if you intentionally want this path.
+
+Binary payloads are attempted through the selected backend, but Android URI permissions can still block some image or file reads. The Android Share sheet/manual send path remains the reliable fallback for binary content that cannot be read automatically.
+
+##### Shizuku Backend
+
+1. Install and start Shizuku or a compatible Shizuku fork.
+2. In ClipCascade, open **Settings** -> **Service** and enable **Use Shizuku clipboard backend**.
+3. Approve ClipCascade when Shizuku prompts for permission.
+4. Start or restart the ClipCascade service. The connected home activity log should show `System · Shizuku connected`.
+
+##### Legacy ADB Backend
 
 ##### Install ADB
 
@@ -693,7 +725,7 @@ Defines the maximum message size (in MiB) that the server can handle.
 - Desktop supports larger clipboard sizes across text, images, and files.
 <br><br>
 <strong>Additional Notes:</strong><br>
-- Clients can set their own limits via the "Extra Config" on the login page.<br>
+- Clients can set their own limits via "Extra Config" on desktop login screens, or via the top-right "Settings" button on the Android connected screen.<br>
 - If <code>CC_P2P_ENABLED</code> is <code>true</code>, this setting is ignored.
 </td>
 <td>1</td>
@@ -1092,6 +1124,7 @@ Defines the STOMP broker password for external message handling.
   
 #### Extra Config/Advanced Settings (Desktop/Mobile):
 - **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+  > On Android, this is in the connected screen's top-right **Settings** menu instead of the login page.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
 - **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
@@ -1103,12 +1136,13 @@ Defines the STOMP broker password for external message handling.
   - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
-  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission popup being dismissed, which prevents clipboard monitoring in the background.
+  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the legacy [ADB](#legacy-adb-backend) workaround, keep this option disabled to avoid issues with the READ_LOGS permission popup being dismissed, which prevents clipboard monitoring in the background.
   - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
+  - **Use Shizuku Clipboard Backend**: Uses Shizuku for Android automatic outbound clipboard capture instead of the legacy READ_LOGS and overlay path. This fork treats Shizuku as strict: if Shizuku is unavailable, Android outbound capture pauses and inbound remote clipboard receiving continues.
     
     <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
 
-  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service. In this fork, these Android settings can also be changed from the connected screen without logging out.
+  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service. In this fork, these Android settings are changed from the connected screen's top-right **Settings** button without logging out.
     
     <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
 

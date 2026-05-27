@@ -23,6 +23,14 @@ import notifee from '@notifee/react-native';
 import { pbkdf2 } from '@react-native-module/pbkdf2';
 import { Buffer } from 'buffer';
 import { pickDirectory, isCancel } from '@react-native-documents/picker';
+import {
+  Download,
+  LogOut,
+  Play,
+  RotateCw,
+  Settings as SettingsIcon,
+  Square,
+} from 'lucide-react-native';
 import { sha3_512 } from 'js-sha3';
 import { DOMParser } from 'react-native-html-parser';
 
@@ -32,12 +40,22 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import ClipboardActivityLog from './ClipboardActivityLog';
+import { clearClipboardEvents } from './ClipboardEventLog';
 import StartForegroundService from './StartForegroundService';
 import {
   getStartupServiceState,
   probeForegroundService,
   shouldPersistStoppedStateAfterSessionValidation,
 } from './ServiceHealth';
+import {
+  LOGIN_EXTRA_CONFIG_KEYS,
+} from './SettingsConfig';
+import SettingsPage from './SettingsPage';
+import {
+  getConnectedHeaderActions,
+  getConnectedServiceActions,
+} from './ServiceControls';
 import { shouldShowNewVersion } from './VersionCheck';
 
 /*
@@ -66,11 +84,11 @@ import { shouldShowNewVersion } from './VersionCheck';
  */
 
 // App version
-const APP_VERSION = '3.2.0.1';
+const APP_VERSION = '3.2.0.2';
 
 // Main App
 export default function App() {
-  const { NativeBridgeModule } = NativeModules;
+  const { NativeBridgeModule, ShizukuClipboard } = NativeModules;
 
   const isMountedRef = useRef(true);
 
@@ -125,6 +143,7 @@ export default function App() {
     save_password: 'false',
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
+    enable_shizuku_clipboard_backend: 'false',
     enable_websocket_status_notification: 'false',
     enable_periodic_checks: 'true',
     enable_image_sharing: 'true',
@@ -207,6 +226,8 @@ export default function App() {
 
   const [initError, setInItError] = useState([false, '']);
   useEffect(() => {
+    clearClipboardEvents();
+
     // initialize
     const init = async () => {
       try {
@@ -631,6 +652,7 @@ export default function App() {
   const logout = async () => {
     try {
       setWsPageMessage('⌛ Please wait...');
+      clearClipboardEvents();
       await setDataInAsyncStorage('password', '');
       if (wsIsRunning === 'true') {
         await setDataInAsyncStorage('wsIsRunning', 'false');
@@ -736,6 +758,7 @@ export default function App() {
         setWsPageP2PMessage('');
         await clearFiles();
         const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        clearClipboardEvents();
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -774,6 +797,7 @@ export default function App() {
         await setDataInAsyncStorage('enableWSButton', 'false');
         setWsPageMessage('Restarting foreground service...');
         setWsPageP2PMessage('');
+        clearClipboardEvents();
         await clearFiles();
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', 'true');
@@ -798,6 +822,16 @@ export default function App() {
         NativeBridgeModule.stopWorkManager();
       } else {
         NativeBridgeModule.startWorkManager();
+      }
+      if (
+        data.enable_shizuku_clipboard_backend === 'true' &&
+        ShizukuClipboard?.getStatus &&
+        ShizukuClipboard?.requestPermission
+      ) {
+        const shizukuStatus = await ShizukuClipboard.getStatus();
+        if (shizukuStatus?.status !== 'connected') {
+          await ShizukuClipboard.requestPermission();
+        }
       }
       setWsPageMessage('✅ Settings saved');
     } catch (error) {
@@ -911,10 +945,12 @@ export default function App() {
   /* Websocket Page Handlers */
   // State to manage websocket page visibility
   const [enableWSPage, setEnableWSPage] = useState(false);
-  const [showWSSettings, setShowWSSettings] = useState(false);
+  const [showSettingsPage, setShowSettingsPage] = useState(false);
 
   // State to manage websocket status
   const [wsIsRunning, setWsIsRunning] = useState('false');
+  const connectedHeaderActions = getConnectedHeaderActions();
+  const connectedServiceActions = getConnectedServiceActions(wsIsRunning);
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
@@ -945,6 +981,56 @@ export default function App() {
     }
   };
 
+  const renderLoginExtraConfigField = key => {
+    switch (key) {
+      case 'hash_rounds':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>Hash Rounds:</Text>
+            <TextInput
+              style={styles.input}
+              value={data.hash_rounds}
+              onChangeText={text =>
+                handleInputChange(
+                  'hash_rounds',
+                  isNaN(Number(text)) ? data.hash_rounds : text.trim(),
+                )
+              }
+            />
+          </View>
+        );
+      case 'salt':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>Salt:</Text>
+            <TextInput
+              style={styles.input}
+              value={data.salt}
+              onChangeText={text => handleInputChange('salt', text)}
+              autoCapitalize="none"
+            />
+          </View>
+        );
+      case 'save_password':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>
+              Store Password Locally (not recommended; only works if encryption
+              is disabled):
+            </Text>
+            <CheckBox
+              value={data.save_password === 'true' ? true : false}
+              onValueChange={newValue =>
+                handleInputChange('save_password', String(newValue))
+              }
+            />
+          </View>
+        );
+      default:
+        return null;
+    }
+  };
+
   // view
   if (initError[0]) {
     return (
@@ -967,10 +1053,7 @@ export default function App() {
   }
   return (
     <SafeAreaView
-      style={{
-        flex: 1,
-        paddingTop: StatusBar.currentHeight,
-      }}
+      style={styles.safeArea}
     >
       {/* Loading Page */}
       {enableLoadingPage && (
@@ -1046,125 +1129,13 @@ export default function App() {
             onPress={() => setShowExtraConfig(!showExtraConfig)}
           >
             <Text style={styles.linkText}>
-              {showExtraConfig ? 'Hide Extra Config' : 'Enable Extra Config'}
+              {showExtraConfig ? 'Hide Login Options' : 'Login Options'}
             </Text>
           </TouchableOpacity>
 
           {/* Extra Config Fields (conditionally rendered) */}
           {showExtraConfig && (
-            <>
-              <View style={styles.row}>
-                <Text style={styles.label}>Hash Rounds:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.hash_rounds}
-                  onChangeText={text =>
-                    handleInputChange(
-                      'hash_rounds',
-                      isNaN(Number(text)) ? data.hash_rounds : text.trim(),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Salt:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.salt}
-                  onChangeText={text => handleInputChange('salt', text)}
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>
-                  Store Password Locally (not recommended; only works if
-                  encryption is disabled):
-                </Text>
-                <CheckBox
-                  value={data.save_password === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('save_password', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>
-                  Maximum Clipboard Size Local Limit (in bytes):
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.max_clipboard_size_local_limit_bytes}
-                  onChangeText={text =>
-                    handleInputChange(
-                      'max_clipboard_size_local_limit_bytes',
-                      isNaN(Number(text))
-                        ? data.max_clipboard_size_local_limit_bytes
-                        : text.trim(),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>
-                  Run on system startup (disable if the READ_LOGS permission is
-                  granted):
-                </Text>
-                <CheckBox
-                  value={data.relaunch_on_boot === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('relaunch_on_boot', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>
-                  Enable WebSocket Status Notification:
-                </Text>
-                <CheckBox
-                  value={
-                    data.enable_websocket_status_notification === 'true'
-                      ? true
-                      : false
-                  }
-                  onValueChange={newValue =>
-                    handleInputChange(
-                      'enable_websocket_status_notification',
-                      String(newValue),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable Periodic Checks:</Text>
-                <CheckBox
-                  value={data.enable_periodic_checks === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange(
-                      'enable_periodic_checks',
-                      String(newValue),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable Image Sharing:</Text>
-                <CheckBox
-                  value={data.enable_image_sharing === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('enable_image_sharing', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable File Sharing:</Text>
-                <CheckBox
-                  value={data.enable_file_sharing === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('enable_file_sharing', String(newValue))
-                  }
-                />
-              </View>
-            </>
+            <>{LOGIN_EXTRA_CONFIG_KEYS.map(renderLoginExtraConfigField)}</>
           )}
           {/* Footer */}
           <View style={styles.footerContainer}>
@@ -1193,42 +1164,83 @@ export default function App() {
       )}
 
       {/* websocket page */}
-      {enableWSPage && (
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.appTitle}>{APP_NAME}</Text>
-          <View style={styles.container}>
-            <TouchableOpacity
-              style={[
-                styles.loginButton,
-                {
-                  backgroundColor: wsIsRunning === 'true' ? '#800020' : 'green',
-                },
-              ]}
-              onPress={foregroundService}
-            >
-              <Text style={styles.loginButtonText}>
-                {wsIsRunning === 'true' ? 'Stop' : 'Start'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.loginButton, { backgroundColor: '#800020' }]}
-              onPress={logout}
-            >
-              <Text style={styles.loginButtonText}>Logout</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.loginButton, { backgroundColor: '#005c78' }]}
-              onPress={restartForegroundService}
-            >
-              <Text style={styles.loginButtonText}>Restart Service</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setShowWSSettings(!showWSSettings)}
-            >
-              <Text style={styles.linkText}>
-                {showWSSettings ? 'Hide Settings' : 'Settings'}
-              </Text>
-            </TouchableOpacity>
+      {enableWSPage && showSettingsPage && (
+        <SettingsPage
+          data={data}
+          handleInputChange={handleInputChange}
+          applyRuntimeSettings={applyRuntimeSettings}
+          openBatteryOptimizationSettings={async () =>
+            await notifee.openBatteryOptimizationSettings()
+          }
+          openPowerManagerSettings={async () =>
+            await notifee.openPowerManagerSettings()
+          }
+          onBack={() => setShowSettingsPage(false)}
+        />
+      )}
+      {enableWSPage && !showSettingsPage && (
+        <ScrollView contentContainerStyle={styles.connectedContainer}>
+          <View style={styles.websocketHeader}>
+            <View style={styles.headerIconSlot}>
+              {connectedHeaderActions.showLogout && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Logout"
+                  style={styles.headerIconButton}
+                  onPress={logout}
+                >
+                  <LogOut color="white" size={22} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={[styles.appTitle, styles.websocketTitle]}>
+              {APP_NAME}
+            </Text>
+            <View style={styles.headerIconSlot}>
+              {connectedHeaderActions.showSettings && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Open settings"
+                  style={styles.headerIconButton}
+                  onPress={() => setShowSettingsPage(true)}
+                >
+                  <SettingsIcon color="white" size={24} />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+          <View style={styles.connectedContent}>
+            <View style={styles.serviceActionsColumn}>
+              <TouchableOpacity
+                style={[
+                  styles.connectedActionButton,
+                  wsIsRunning === 'true'
+                    ? styles.stopButton
+                    : styles.startButton,
+                ]}
+                onPress={foregroundService}
+              >
+                {wsIsRunning === 'true' ? (
+                  <Square color="white" size={18} />
+                ) : (
+                  <Play color="white" size={18} />
+                )}
+                <Text style={styles.connectedActionButtonText}>
+                  {connectedServiceActions.primaryLabel}
+                </Text>
+              </TouchableOpacity>
+              {connectedServiceActions.showRestart && (
+                <TouchableOpacity
+                  style={[styles.connectedActionButton, styles.restartButton]}
+                  onPress={restartForegroundService}
+                >
+                  <RotateCw color="white" size={18} />
+                  <Text style={styles.connectedActionButtonText}>
+                    Restart Service
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
             {/* Display websocket status message */}
             {wsPageMessage !== '' && (
               <Text style={styles.message}>{wsPageMessage}</Text>
@@ -1237,99 +1249,16 @@ export default function App() {
             {wsPageP2PMessage !== '' && (
               <Text style={styles.message}>{wsPageP2PMessage}</Text>
             )}
-            {showWSSettings && (
-              <>
-                <View style={styles.row}>
-                  <Text style={styles.label}>
-                    Maximum Clipboard Size Local Limit (in bytes):
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    value={data.max_clipboard_size_local_limit_bytes}
-                    onChangeText={text =>
-                      handleInputChange(
-                        'max_clipboard_size_local_limit_bytes',
-                        isNaN(Number(text))
-                          ? data.max_clipboard_size_local_limit_bytes
-                          : text.trim(),
-                      )
-                    }
-                  />
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Run on system startup:</Text>
-                  <CheckBox
-                    value={data.relaunch_on_boot === 'true' ? true : false}
-                    onValueChange={newValue =>
-                      handleInputChange('relaunch_on_boot', String(newValue))
-                    }
-                  />
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>
-                    Enable WebSocket Status Notification:
-                  </Text>
-                  <CheckBox
-                    value={
-                      data.enable_websocket_status_notification === 'true'
-                        ? true
-                        : false
-                    }
-                    onValueChange={newValue =>
-                      handleInputChange(
-                        'enable_websocket_status_notification',
-                        String(newValue),
-                      )
-                    }
-                  />
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Enable Periodic Checks:</Text>
-                  <CheckBox
-                    value={data.enable_periodic_checks === 'true' ? true : false}
-                    onValueChange={newValue =>
-                      handleInputChange(
-                        'enable_periodic_checks',
-                        String(newValue),
-                      )
-                    }
-                  />
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Enable Image Sharing:</Text>
-                  <CheckBox
-                    value={data.enable_image_sharing === 'true' ? true : false}
-                    onValueChange={newValue =>
-                      handleInputChange('enable_image_sharing', String(newValue))
-                    }
-                  />
-                </View>
-                <View style={styles.row}>
-                  <Text style={styles.label}>Enable File Sharing:</Text>
-                  <CheckBox
-                    value={data.enable_file_sharing === 'true' ? true : false}
-                    onValueChange={newValue =>
-                      handleInputChange('enable_file_sharing', String(newValue))
-                    }
-                  />
-                </View>
-                <TouchableOpacity
-                  style={[styles.loginButton, { backgroundColor: '#006b3c' }]}
-                  onPress={applyRuntimeSettings}
-                >
-                  <Text style={styles.loginButtonText}>Save Settings</Text>
-                </TouchableOpacity>
-              </>
-            )}
             {/* File download button */}
             {enableFilesDownloadButton &&
               enableFilesDownloadButton === true && (
                 <TouchableOpacity
-                  style={[styles.loginButton, { backgroundColor: '#4bab4e' }]}
+                  style={[styles.connectedActionButton, styles.downloadButton]}
                   onPress={downloadFiles}
                 >
-                  <Text style={styles.loginButtonText}>
-                    📥 Download File(s)
+                  <Download color="white" size={18} />
+                  <Text style={styles.connectedActionButtonText}>
+                    Download File(s)
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1354,157 +1283,7 @@ export default function App() {
                 </Text>
               </TouchableOpacity>
             )}
-            <View style={{ marginTop: 20, paddingHorizontal: 10 }}>
-              <Text
-                style={[styles.message, { fontWeight: 'bold', fontSize: 18 }]}
-              >
-                Instructions
-              </Text>
-
-              <View style={{ marginTop: 15 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Clipboard Sharing on Android 10+:
-                </Text>
-                <Text style={styles.label}>
-                  On Android 10 and above, clipboard monitoring has been
-                  restricted for privacy reasons. To share clipboard content
-                  using ClipCascade:
-                </Text>
-                <View style={{ marginTop: 10, marginLeft: 15 }}>
-                  <Text style={styles.label}>
-                    1. Select the text, image, or file(s) you want to copy.
-                  </Text>
-                  <Text style={styles.label}>
-                    2. Tap 'Share', select 'ClipCascade'.
-                  </Text>
-                  <Text style={[styles.label, { marginLeft: 15 }]}>(or)</Text>
-                  <Text style={[styles.label, { marginLeft: 15 }]}>
-                    Tap 'ClipCascade' instead of 'Copy'.
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    styles.label,
-                    { marginTop: 5, fontSize: 15, fontStyle: 'italic' },
-                  ]}
-                >
-                  There's also a workaround to enable clipboard sharing in the
-                  background. Scroll down for setup instructions.
-                </Text>
-              </View>
-
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Background Clipboard Reception:
-                </Text>
-                <Text style={styles.label}>
-                  ClipCascade automatically receives clipboard content in the
-                  background. No manual action is required to receive data.
-                </Text>
-              </View>
-
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Important Note:
-                </Text>
-                <Text style={styles.label}>
-                  To ensure uninterrupted performance, please disable battery
-                  optimization for ClipCascade. This will prevent the system
-                  from stopping the app when it's running in the foreground.
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.loginButton, { backgroundColor: 'black' }]}
-                onPress={async () =>
-                  await notifee.openBatteryOptimizationSettings()
-                }
-              >
-                <Text style={styles.loginButtonText}>
-                  Battery Optimization Settings
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.loginButton, { backgroundColor: 'black' }]}
-                onPress={async () => await notifee.openPowerManagerSettings()}
-              >
-                <Text style={styles.loginButtonText}>
-                  Power Manager Settings
-                </Text>
-              </TouchableOpacity>
-
-              {/* ADB Commands Section */}
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Automatic Clipboard Monitoring Setup:
-                </Text>
-                <Text style={styles.label}>
-                  On rooted/non-rooted devices, to enable automatic clipboard
-                  monitoring you need to execute these 3 ADB commands:
-                </Text>
-                <View style={{ marginTop: 10, marginLeft: 15 }}>
-                  <Text style={styles.label}>
-                    1. Enable the READ_LOGS permission:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell pm grant com.darkaxt.clipcascade android.permission.READ_LOGS`}
-                  </Text>
-
-                  <Text style={styles.label}>
-                    2. Allow "Drawing over other apps", also accessible from
-                    Settings:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell appops set com.darkaxt.clipcascade SYSTEM_ALERT_WINDOW allow`}
-                  </Text>
-
-                  <Text style={styles.label}>
-                    3. Kill the app for the new permissions to take effect:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell am force-stop com.darkaxt.clipcascade`}
-                  </Text>
-                </View>
-              </View>
-            </View>
+            <ClipboardActivityLog />
           </View>
           {/* Footer */}
           <View style={styles.footerContainer}>
@@ -1543,7 +1322,16 @@ export default function App() {
 
 // view styles
 const styles = StyleSheet.create({
+  safeArea: {
+    backgroundColor: '#303030',
+    flex: 1,
+    paddingTop: StatusBar.currentHeight,
+  },
   container: {
+    padding: 20,
+  },
+  connectedContainer: {
+    backgroundColor: '#303030',
     padding: 20,
   },
   loadingContainer: {
@@ -1552,10 +1340,105 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   appTitle: {
+    color: '#f4f4f5',
     fontSize: 28,
     fontWeight: 'bold',
     textAlign: 'center',
     paddingBottom: 20,
+  },
+  websocketHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  websocketTitle: {
+    flex: 1,
+    paddingBottom: 0,
+    paddingHorizontal: 10,
+    textAlign: 'center',
+  },
+  headerIconSlot: {
+    alignItems: 'center',
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  headerIconButton: {
+    alignItems: 'center',
+    backgroundColor: '#202124',
+    borderRadius: 5,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  headerSettingsButton: {
+    backgroundColor: '#202124',
+    borderRadius: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  headerSettingsButtonActive: {
+    backgroundColor: '#005c78',
+  },
+  headerSettingsButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  connectedContent: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  serviceActionsColumn: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  connectedActionButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderRadius: 5,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginVertical: 8,
+    maxWidth: 340,
+    minHeight: 44,
+    minWidth: 160,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  connectedActionButtonText: {
+    color: 'white',
+    flexShrink: 1,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  secondaryActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  startButton: {
+    backgroundColor: 'green',
+    minWidth: 180,
+  },
+  stopButton: {
+    backgroundColor: '#800020',
+    minWidth: 180,
+  },
+  restartButton: {
+    backgroundColor: '#005c78',
+  },
+  logoutButton: {
+    backgroundColor: '#800020',
+  },
+  downloadButton: {
+    backgroundColor: '#4bab4e',
   },
   loadingBottomContainer: {
     position: 'absolute',

@@ -83,8 +83,8 @@ android {
         applicationId "com.darkaxt.clipcascade"
         minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3020001
-        versionName "3.2.0.1"
+        versionCode 3020002
+        versionName "3.2.0.2"
     }
     signingConfigs {
         debug {
@@ -146,4 +146,8 @@ dependencies {
 
     // Kotlin serialization
     implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0"
+
+    // Shizuku clipboard backend
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
 }

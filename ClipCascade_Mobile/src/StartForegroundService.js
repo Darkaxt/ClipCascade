@@ -29,12 +29,26 @@ import {
   normalizeRuntimeSettings,
   resolveClipboardLimit,
 } from './ServiceHealth';
+import {
+  appendClipboardEvent,
+  clearClipboardEvents,
+} from './ClipboardEventLog';
+import {
+  clearClipboardEchoSuppression,
+  setClipboardEchoSuppression,
+  shouldSuppressClipboardEcho,
+} from './ClipboardEchoSuppression';
+import {
+  getClipboardCaptureUnavailableMessage,
+  resolveClipboardCaptureProvider,
+} from './ClipboardCaptureProvider';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
   DeviceEventEmitter.removeAllListeners('onClipboardChange');
+  DeviceEventEmitter.removeAllListeners('onShizukuStatusChange');
 }
 
 module.exports = async (inputData = null) => {
@@ -49,9 +63,25 @@ module.exports = async (inputData = null) => {
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
       try {
-        const { NativeBridgeModule } = NativeModules;
+        const { NativeBridgeModule, ClipboardListener, ShizukuClipboard } =
+          NativeModules;
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
+        clearClipboardEvents();
+        await clearClipboardEchoSuppression({
+          setValue: setDataInAsyncStorage,
+        });
+        cleanupClipboardListeners();
+        try {
+          await ClipboardListener.stopListening();
+        } catch (error) {
+          // no-op
+        }
+        try {
+          await ShizukuClipboard?.stopListening?.();
+        } catch (error) {
+          // no-op
+        }
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
@@ -78,6 +108,7 @@ module.exports = async (inputData = null) => {
           'stun_url',
           'enable_image_sharing',
           'enable_file_sharing',
+          'enable_shizuku_clipboard_backend',
           'enable_websocket_status_notification',
           'max_clipboard_size_local_limit_bytes',
         ]);
@@ -90,12 +121,15 @@ module.exports = async (inputData = null) => {
           stun_url,
           enable_image_sharing,
           enable_file_sharing,
+          enable_shizuku_clipboard_backend,
           enable_websocket_status_notification,
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
         } = initialSettings;
 
         const maxsize = Number(maxsizeStr);
         let runtimeSettings = {
+          enable_shizuku_clipboard_backend:
+            enable_shizuku_clipboard_backend || 'false',
           enable_image_sharing,
           enable_file_sharing,
           enable_websocket_status_notification,
@@ -154,6 +188,136 @@ module.exports = async (inputData = null) => {
           const n = base64Str.length;
           const padding = (base64Str.match(/=/g) || []).length;
           return 3 * (n / 4) - padding;
+        };
+
+        const getOutboundFilePaths = clipContent =>
+          String(clipContent)
+            .split(',')
+            .filter(item => item.trim() !== '');
+
+        const getOutboundClipboardMetadata = async (
+          clipContent,
+          type_ = 'text',
+        ) => {
+          try {
+            if (type_ === 'image' && typeof clipContent === 'string') {
+              return {
+                sizeBytes: Number(
+                  await NativeBridgeModule.getFileSize(clipContent),
+                ),
+              };
+            }
+
+            if (type_ === 'files' && typeof clipContent === 'string') {
+              const filePaths = getOutboundFilePaths(clipContent);
+              const fileNames = [];
+              for (const filePath of filePaths.slice(0, 3)) {
+                fileNames.push(await NativeBridgeModule.getFileName(filePath));
+              }
+
+              return {
+                fileCount: filePaths.length,
+                fileNames,
+              };
+            }
+          } catch (error) {
+            return {};
+          }
+
+          return {};
+        };
+
+        const getInboundClipboardMetadata = async (
+          clipContent,
+          type_ = 'text',
+        ) => {
+          try {
+            if (type_ === 'image') {
+              return {
+                sizeBytes: await calculateBase64DecodedLength(clipContent),
+              };
+            }
+
+            if (type_ === 'files') {
+              const files = JSON.parse(clipContent);
+              let sizeBytes = 0;
+              for (const fileName in files) {
+                sizeBytes += await calculateBase64DecodedLength(
+                  files[fileName],
+                );
+              }
+
+              return {
+                fileCount: Object.keys(files).length,
+                fileNames: Object.keys(files).slice(0, 3),
+                sizeBytes,
+              };
+            }
+          } catch (error) {
+            return {};
+          }
+
+          return {};
+        };
+
+        const appendActivityEvent = async ({
+          direction,
+          type = 'text',
+          status,
+          content,
+          metadata = {},
+          operationKey,
+        }) => {
+          appendClipboardEvent({
+            direction: direction.toLowerCase(),
+            type,
+            status,
+            content: type === 'text' ? content : undefined,
+            metadata,
+            operationKey,
+          });
+        };
+
+        const appendActivityError = async (direction, type_, error) => {
+          await appendActivityEvent({
+            direction,
+            type: type_,
+            status: 'Error',
+            metadata: {
+              statusDetail: String(error),
+            },
+          });
+        };
+
+        const setLocalClipboardEchoSuppression = async (
+          type_,
+          contentHash = '',
+        ) => {
+          await setClipboardEchoSuppression({
+            setValue: setDataInAsyncStorage,
+            type: type_,
+            contentHash,
+          });
+        };
+
+        const shouldSuppressLocalClipboardEcho = async (type_, content) => {
+          return shouldSuppressClipboardEcho({
+            getValue: getDataFromAsyncStorage,
+            hashCB,
+            type: type_,
+            content,
+          });
+        };
+
+        const clearLocalClipboardEchoSuppression = async () => {
+          await clearClipboardEchoSuppression({
+            setValue: setDataInAsyncStorage,
+          });
+        };
+
+        const resetLocalClipboardEchoGuards = async () => {
+          block_image_once = false;
+          await clearLocalClipboardEchoSuppression();
         };
 
         // fragment string into chunks
@@ -263,6 +427,20 @@ module.exports = async (inputData = null) => {
             await p2pStatusMessageChanged();
           }
 
+          await appendActivityEvent({
+            direction,
+            type,
+            status: 'Ignored',
+            content: clipContent,
+            metadata: {
+              sizeBytes: clipContentByteLength,
+              statusDetail:
+                'Size ' +
+                clipContentByteLength +
+                ' bytes exceeds configured limit',
+            },
+          });
+
           return false;
         };
 
@@ -271,6 +449,12 @@ module.exports = async (inputData = null) => {
           try {
             const clipContent = event.text;
             if (clipContent) {
+              await appendActivityEvent({
+                direction: 'outbound',
+                type: 'text',
+                status: 'Detected',
+                content: clipContent,
+              });
               /**
                * Sometimes `Clipboard.setString` is invoked before the app is fully opened, leading to an unauthorized state.
                * To handle this, implement a fail-safe mechanism that retries sending clipboard content only when it hasn't been successfully sent yet.
@@ -284,6 +468,7 @@ module.exports = async (inputData = null) => {
               'wsStatusMessage',
               '❌ Outbound Error: ' + e,
             );
+            await appendActivityError('outbound', 'text', e);
           }
         });
 
@@ -292,6 +477,15 @@ module.exports = async (inputData = null) => {
           try {
             const clipContent = event.image;
             if (clipContent) {
+              await appendActivityEvent({
+                direction: 'outbound',
+                type: 'image',
+                status: 'Detected',
+                metadata: await getOutboundClipboardMetadata(
+                  clipContent,
+                  'image',
+                ),
+              });
               await sendClipBoard(clipContent, 'image');
             }
           } catch (e) {
@@ -299,6 +493,7 @@ module.exports = async (inputData = null) => {
               'wsStatusMessage',
               '❌ Outbound Error: ' + e,
             );
+            await appendActivityError('outbound', 'image', e);
           }
         });
 
@@ -307,6 +502,15 @@ module.exports = async (inputData = null) => {
           try {
             const clipContent = event.files;
             if (clipContent) {
+              await appendActivityEvent({
+                direction: 'outbound',
+                type: 'files',
+                status: 'Detected',
+                metadata: await getOutboundClipboardMetadata(
+                  clipContent,
+                  'files',
+                ),
+              });
               await sendClipBoard(clipContent, 'files');
             }
           } catch (e) {
@@ -314,30 +518,240 @@ module.exports = async (inputData = null) => {
               'wsStatusMessage',
               '❌ Outbound Error: ' + e,
             );
+            await appendActivityError('outbound', 'files', e);
           }
         });
 
-        //clipboard monitor
-        const { ClipboardListener } = NativeModules;
-        const clipboardListener = new NativeEventEmitter(ClipboardListener);
-        // start clipboard listening
-        ClipboardListener.startListening();
-        // clipboard listener callback
-        const clipboardOnChange = clipboardListener.addListener(
-          'onClipboardChange',
-          async params => {
+        let clipboardOnChange = null;
+        let shizukuStatusOnChange = null;
+        let activeClipboardModule = null;
+        let activeClipboardBackend = 'legacy';
+
+        const setClipboardCaptureStatus = async ({
+          backend,
+          shizukuStatus,
+        }) => {
+          await setDataInAsyncStorage('clipboard_capture_backend', backend);
+          await setDataInAsyncStorage('shizuku_status', shizukuStatus);
+        };
+
+        const appendShizukuSystemEvent = async message => {
+          await appendActivityEvent({
+            direction: 'system',
+            type: 'text',
+            status: 'System',
+            content: message,
+          });
+        };
+
+        const showShizukuUnavailableNotification = async shizukuStatus => {
+          await notifee.displayNotification({
+            id: 'ClipCascade_Shizuku_Status_Notification_Id',
+            title: 'ClipCascade: Shizuku clipboard backend unavailable',
+            body: getClipboardCaptureUnavailableMessage(shizukuStatus),
+            android: {
+              channelId: 'ClipCascade_Connection_Status',
+              smallIcon: 'ic_small_icon',
+              color: 'gray',
+              pressAction: {
+                id: 'default',
+                launchActivity: 'default',
+              },
+            },
+          });
+        };
+
+        const getNativeShizukuStatus = async () => {
+          if (!ShizukuClipboard?.getStatus) {
+            return 'not_installed';
+          }
+
+          try {
+            const status = await ShizukuClipboard.getStatus();
+            return typeof status === 'string'
+              ? status
+              : status?.status || 'disconnected';
+          } catch (error) {
+            return 'disconnected';
+          }
+        };
+
+        const handleShizukuUnavailable = async shizukuStatus => {
+          const provider = resolveClipboardCaptureProvider({
+            enableShizukuClipboardBackend: 'true',
+            shizukuStatus,
+          });
+          activeClipboardBackend = provider.backend;
+          await setClipboardCaptureStatus(provider);
+
+          const message = getClipboardCaptureUnavailableMessage(
+            provider.shizukuStatus,
+          );
+          await setDataInAsyncStorage('wsStatusMessage', `⚠️ ${message}`);
+          await appendShizukuSystemEvent(message);
+          await showShizukuUnavailableNotification(provider.shizukuStatus);
+        };
+
+        const stopActiveClipboardCapture = async () => {
+          try {
+            clipboardOnChange?.remove?.();
+            shizukuStatusOnChange?.remove?.();
+          } catch (error) {
+            // no-op
+          }
+          clipboardOnChange = null;
+          shizukuStatusOnChange = null;
+
+          const modulesToStop = [
+            activeClipboardModule,
+            ClipboardListener,
+            ShizukuClipboard,
+          ].filter(Boolean);
+          const uniqueModulesToStop = [...new Set(modulesToStop)];
+
+          for (const clipboardModule of uniqueModulesToStop) {
             try {
-              if (params && params.content && params.type) {
-                await sendClipBoard(params.content, params.type);
-              }
-            } catch (e) {
-              await setDataInAsyncStorage(
-                'wsStatusMessage',
-                '❌ Outbound Error: ' + e,
-              );
+              await clipboardModule?.stopListening?.();
+            } catch (error) {
+              // no-op
             }
-          },
-        );
+          }
+          activeClipboardModule = null;
+        };
+
+        const appendShizukuUriUnavailableEvent = async (
+          type_,
+          clipContent,
+        ) => {
+          await appendActivityEvent({
+            direction: 'outbound',
+            type: type_,
+            status: 'Ignored',
+            content: clipContent,
+            metadata: {
+              statusDetail: 'Shizuku URI access unavailable',
+            },
+          });
+          await setDataInAsyncStorage(
+            'wsStatusMessage',
+            '⚠️ Shizuku URI access unavailable',
+          );
+        };
+
+        const handleAutomaticClipboardChange = async params => {
+          try {
+            if (params && params.content && params.type) {
+              const backend = params.backend || activeClipboardBackend;
+              if (
+                await shouldSuppressLocalClipboardEcho(
+                  params.type,
+                  params.content,
+                )
+              ) {
+                return;
+              }
+
+              await appendActivityEvent({
+                direction: 'outbound',
+                type: params.type,
+                status: 'Detected',
+                content: params.content,
+                metadata: await getOutboundClipboardMetadata(
+                  params.content,
+                  params.type,
+                ),
+              });
+              await sendClipBoard(params.content, params.type, { backend });
+            }
+          } catch (e) {
+            if (
+              (params?.backend === 'shizuku' ||
+                activeClipboardBackend === 'shizuku') &&
+              params?.type !== 'text'
+            ) {
+              await appendShizukuUriUnavailableEvent(
+                params?.type || 'files',
+                params?.content,
+              );
+              return;
+            }
+
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '❌ Outbound Error: ' + e,
+            );
+            await appendActivityError('outbound', params?.type || 'text', e);
+          }
+        };
+
+        const startAutomaticClipboardCapture = async () => {
+          await stopActiveClipboardCapture();
+
+          const shizukuStatus =
+            runtimeSettings.enable_shizuku_clipboard_backend === 'true'
+              ? await getNativeShizukuStatus()
+              : 'disabled';
+          const provider = resolveClipboardCaptureProvider({
+            enableShizukuClipboardBackend:
+              runtimeSettings.enable_shizuku_clipboard_backend,
+            shizukuStatus,
+          });
+
+          activeClipboardBackend = provider.backend;
+          await setClipboardCaptureStatus(provider);
+
+          if (!provider.automaticCaptureEnabled) {
+            await handleShizukuUnavailable(provider.shizukuStatus);
+            return;
+          }
+
+          activeClipboardModule =
+            provider.backend === 'shizuku'
+              ? ShizukuClipboard
+              : ClipboardListener;
+
+          if (!activeClipboardModule?.startListening) {
+            await handleShizukuUnavailable('not_installed');
+            return;
+          }
+
+          const clipboardListener = new NativeEventEmitter(
+            activeClipboardModule,
+          );
+          const startResult = await activeClipboardModule.startListening();
+          const startStatus =
+            typeof startResult === 'string'
+              ? startResult
+              : startResult?.status || provider.shizukuStatus;
+
+          if (provider.backend === 'shizuku' && startStatus !== 'connected') {
+            await stopActiveClipboardCapture();
+            await handleShizukuUnavailable(startStatus);
+            return;
+          }
+
+          clipboardOnChange = clipboardListener.addListener(
+            'onClipboardChange',
+            handleAutomaticClipboardChange,
+          );
+
+          if (provider.backend === 'shizuku') {
+            await notifee.cancelNotification(
+              'ClipCascade_Shizuku_Status_Notification_Id',
+            );
+            await appendShizukuSystemEvent('Shizuku connected');
+            shizukuStatusOnChange = clipboardListener.addListener(
+              'onShizukuStatusChange',
+              async event => {
+                const nextStatus = event?.status || 'disconnected';
+                if (nextStatus !== 'connected') {
+                  await stopActiveClipboardCapture();
+                  await handleShizukuUnavailable(nextStatus);
+                }
+              },
+            );
+          }
+        };
 
         const clearFiles = async (expensiveCall = false) => {
           files_in_memory = null;
@@ -427,40 +841,66 @@ module.exports = async (inputData = null) => {
                       }
                     }
 
+                    const inboundMetadata =
+                      await getInboundClipboardMetadata(cb, type_);
                     // hash clipboard content
                     const hcb = await hashCB(cb);
-                    if (await newCB(hcb)) {
-                      previous_clipboard_content_hash = hcb;
+                    const operationKey = `inbound:${type_}:${hcb}`;
+                    if (!(await newCB(hcb))) {
+                      return;
+                    }
 
-                      // validate clipboard size
-                      if (await validateClipboardSize(cb, type_, 'Inbound')) {
-                        // set clipboard content
-                        if (type_ === 'text') {
-                          Clipboard.setString(cb);
-                        } else if (type_ === 'image') {
-                          await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                            cb,
-                          );
-                          block_image_once = true;
-                        } else if (type_ === 'files') {
-                          await showFilesDownloadNotification(
-                            '📥 Download File(s)',
-                          );
+                    await appendActivityEvent({
+                      direction: 'inbound',
+                      type: type_,
+                      status: 'Received',
+                      content: cb,
+                      metadata: inboundMetadata,
+                      operationKey,
+                    });
 
-                          files_in_memory = cb;
-                          await setDataInAsyncStorage(
-                            'filesAvailableToDownload',
-                            'true',
-                          );
-                        }
+                    previous_clipboard_content_hash = hcb;
+
+                    // validate clipboard size
+                    if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                      // set clipboard content
+                      if (type_ === 'text') {
+                        await setLocalClipboardEchoSuppression(type_, hcb);
+                        Clipboard.setString(cb);
+                      } else if (type_ === 'image') {
+                        await setLocalClipboardEchoSuppression(type_, hcb);
+                        block_image_once = true;
+                        await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
+                          cb,
+                        );
+                      } else if (type_ === 'files') {
+                        await showFilesDownloadNotification(
+                          '📥 Download File(s)',
+                        );
+
+                        files_in_memory = cb;
+                        await setDataInAsyncStorage(
+                          'filesAvailableToDownload',
+                          'true',
+                        );
                       }
+                      await appendActivityEvent({
+                        direction: 'inbound',
+                        type: type_,
+                        status: 'Applied',
+                        content: cb,
+                        metadata: inboundMetadata,
+                        operationKey,
+                      });
                     }
                   }
                 } catch (e) {
+                  await resetLocalClipboardEchoGuards();
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '❌ Inbound Error: ' + e,
                   );
+                  await appendActivityError('inbound', 'text', e);
                 }
               });
 
@@ -480,25 +920,25 @@ module.exports = async (inputData = null) => {
               }
             },
             onDisconnect: async () => {
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
             },
             onStompError: async frame => {
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 '❌ STOMP Error: ' + JSON.stringify(frame, null, 2),
               );
             },
             onWebSocketError: async event => {
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
               );
             },
             onWebSocketClose: async event => {
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
               const reason = event?.reason || 'closed by client';
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -523,9 +963,25 @@ module.exports = async (inputData = null) => {
           stompClient.activate();
 
           // send clipboard content P2S
-          sendClipBoardP2S = async (clipContent, type_ = 'text') => {
+          sendClipBoardP2S = async (
+            clipContent,
+            type_ = 'text',
+            options = {},
+          ) => {
+            const originalClipContent = clipContent;
+            let outboundMetadata = {};
             try {
               await clearFiles();
+              if (
+                await shouldSuppressLocalClipboardEcho(type_, clipContent)
+              ) {
+                return;
+              }
+
+              outboundMetadata = await getOutboundClipboardMetadata(
+                originalClipContent,
+                type_,
+              );
               if (stompClient && stompClient.connected && !toggle) {
                 if (
                   (type_ === 'image' &&
@@ -533,6 +989,16 @@ module.exports = async (inputData = null) => {
                   (type_ === 'files' &&
                     runtimeSettings.enable_file_sharing === 'false')
                 ) {
+                  await appendActivityEvent({
+                    direction: 'outbound',
+                    type: type_,
+                    status: 'Ignored',
+                    content: originalClipContent,
+                    metadata: {
+                      ...outboundMetadata,
+                      statusDetail: 'Sharing disabled',
+                    },
+                  });
                   return;
                 }
 
@@ -564,6 +1030,16 @@ module.exports = async (inputData = null) => {
 
                     if (block_image_once) {
                       block_image_once = false;
+                      await appendActivityEvent({
+                        direction: 'outbound',
+                        type: type_,
+                        status: 'Ignored',
+                        content: originalClipContent,
+                        metadata: {
+                          ...outboundMetadata,
+                          statusDetail: 'Local image echo suppressed',
+                        },
+                      });
                     } else {
                       toggle = true;
 
@@ -585,13 +1061,42 @@ module.exports = async (inputData = null) => {
                           type: type_,
                         }),
                       });
+                      await appendActivityEvent({
+                        direction: 'outbound',
+                        type: type_,
+                        status: 'Sent',
+                        content: originalClipContent,
+                        metadata: outboundMetadata,
+                      });
                     }
+                  } else {
+                    await appendActivityEvent({
+                      direction: 'outbound',
+                      type: type_,
+                      status: 'Ignored',
+                      content: originalClipContent,
+                      metadata: {
+                        ...outboundMetadata,
+                        statusDetail: 'Duplicate clipboard',
+                      },
+                    });
                   }
                 }
               }
             } catch (e) {
               toggle = false;
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
+              if (
+                options.backend === 'shizuku' &&
+                (type_ === 'image' || type_ === 'files')
+              ) {
+                await appendShizukuUriUnavailableEvent(
+                  type_,
+                  originalClipContent,
+                );
+                return;
+              }
+              await appendActivityError('outbound', type_, e);
               throw e;
             }
           };
@@ -599,14 +1104,7 @@ module.exports = async (inputData = null) => {
           // stop events and connection P2S
           stopServicesP2S = async () => {
             // 1) Stop clipboard listening
-            try {
-              await ClipboardListener.stopListening();
-              if (clipboardOnChange) {
-                clipboardOnChange.remove();
-              }
-            } catch (e) {
-              // no-op
-            }
+            await stopActiveClipboardCapture();
 
             // 2) Deactivate STOMP client safely
             if (stompClient) {
@@ -833,7 +1331,7 @@ module.exports = async (inputData = null) => {
               };
 
               wsSignalingClient.onerror = async event => {
-                block_image_once = false;
+                await resetLocalClipboardEchoGuards();
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
                   '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
@@ -841,7 +1339,7 @@ module.exports = async (inputData = null) => {
               };
 
               wsSignalingClient.onclose = async event => {
-                block_image_once = false;
+                await resetLocalClipboardEchoGuards();
                 const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
@@ -877,15 +1375,41 @@ module.exports = async (inputData = null) => {
           initializeWebSocketSignalingClient();
 
           // send clipboard content P2P
-          sendClipBoardP2P = async (clipContent, type_ = 'text') => {
+          sendClipBoardP2P = async (
+            clipContent,
+            type_ = 'text',
+            options = {},
+          ) => {
+            const originalClipContent = clipContent;
+            let outboundMetadata = {};
             try {
               await clearFiles();
+              if (
+                await shouldSuppressLocalClipboardEcho(type_, clipContent)
+              ) {
+                return;
+              }
+
+              outboundMetadata = await getOutboundClipboardMetadata(
+                originalClipContent,
+                type_,
+              );
               if (
                 (type_ === 'image' &&
                   runtimeSettings.enable_image_sharing === 'false') ||
                 (type_ === 'files' &&
                   runtimeSettings.enable_file_sharing === 'false')
               ) {
+                await appendActivityEvent({
+                  direction: 'outbound',
+                  type: type_,
+                  status: 'Ignored',
+                  content: originalClipContent,
+                  metadata: {
+                    ...outboundMetadata,
+                    statusDetail: 'Sharing disabled',
+                  },
+                });
                 return;
               }
 
@@ -915,6 +1439,16 @@ module.exports = async (inputData = null) => {
 
                   if (block_image_once) {
                     block_image_once = false;
+                    await appendActivityEvent({
+                      direction: 'outbound',
+                      type: type_,
+                      status: 'Ignored',
+                      content: originalClipContent,
+                      metadata: {
+                        ...outboundMetadata,
+                        statusDetail: 'Local image echo suppressed',
+                      },
+                    });
                   } else {
                     await resetSendingFragmentId();
                     await resetReceivingFragments();
@@ -975,28 +1509,57 @@ module.exports = async (inputData = null) => {
                     }
                     if (!loopBroken) {
                       await resetSendingFragmentId();
+                      await appendActivityEvent({
+                        direction: 'outbound',
+                        type: type_,
+                        status: 'Sent',
+                        content: originalClipContent,
+                        metadata: {
+                          ...outboundMetadata,
+                          statusDetail:
+                            fragments.length +
+                            ' fragment(s), ' +
+                            liveConnectionsCount +
+                            ' peer(s)',
+                        },
+                      });
                     }
                   }
+                } else {
+                  await appendActivityEvent({
+                    direction: 'outbound',
+                    type: type_,
+                    status: 'Ignored',
+                    content: originalClipContent,
+                    metadata: {
+                      ...outboundMetadata,
+                      statusDetail: 'Duplicate clipboard',
+                    },
+                  });
                 }
               }
             } catch (e) {
-              block_image_once = false;
+              await resetLocalClipboardEchoGuards();
+              if (
+                options.backend === 'shizuku' &&
+                (type_ === 'image' || type_ === 'files')
+              ) {
+                await appendShizukuUriUnavailableEvent(
+                  type_,
+                  originalClipContent,
+                );
+                return;
+              }
               p2pMsg = '❌ P2P Outbound Error: ' + JSON.stringify(e, null, 2);
               await p2pStatusMessageChanged();
+              await appendActivityError('outbound', type_, e);
             }
           };
 
           // stop events and connection P2P
           stopServicesP2P = async () => {
             // 1) Stop listening to clipboard events
-            try {
-              await ClipboardListener.stopListening();
-              if (clipboardOnChange) {
-                clipboardOnChange.remove();
-              }
-            } catch (e) {
-              // no-op
-            }
+            await stopActiveClipboardCapture();
 
             // 2) Clean up the WebSocket (signaling client)
             if (wsSignalingClient) {
@@ -1068,6 +1631,18 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 p2pMsg = `⚠️ Payload size limit exceeded: ${metadata['combinedRawPayloadSizeInBytes']} bytes exceeds ${runtimeSettings.max_clipboard_size_local_limit_bytes} bytes`;
                 await p2pStatusMessageChanged();
+                await appendActivityEvent({
+                  direction: 'inbound',
+                  type: type_,
+                  status: 'Ignored',
+                  metadata: {
+                    sizeBytes: metadata.combinedRawPayloadSizeInBytes,
+                    statusDetail:
+                      'Size ' +
+                      metadata.combinedRawPayloadSizeInBytes +
+                      ' bytes exceeds configured limit',
+                  },
+                });
                 return;
               }
 
@@ -1095,6 +1670,14 @@ module.exports = async (inputData = null) => {
                       p2pMsg =
                         'Failed to receive: One or more fragments are missing or the clipboard changed before completion.';
                       await p2pStatusMessageChanged();
+                      await appendActivityEvent({
+                        direction: 'inbound',
+                        type: type_,
+                        status: 'Error',
+                        metadata: {
+                          statusDetail: 'Missing clipboard fragment',
+                        },
+                      });
                       return;
                     }
                   } else {
@@ -1124,36 +1707,65 @@ module.exports = async (inputData = null) => {
                 }
               }
 
+              const inboundMetadata = await getInboundClipboardMetadata(
+                cb,
+                type_,
+              );
               // hash clipboard content
               const hcb = await hashCB(cb);
-              if (await newCB(hcb)) {
-                previous_clipboard_content_hash = hcb;
-
+              const operationKey = `inbound:${type_}:${hcb}`;
+              if (!(await newCB(hcb))) {
                 await resetReceivingFragments();
-                // validate clipboard size
-                if (await validateClipboardSize(cb, type_, 'Inbound')) {
-                  // set clipboard content
-                  if (type_ === 'text') {
-                    Clipboard.setString(cb);
-                  } else if (type_ === 'image') {
-                    await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                      cb,
-                    );
-                    block_image_once = true;
-                  } else if (type_ === 'files') {
-                    await showFilesDownloadNotification('📥 Download File(s)');
+                return;
+              }
 
-                    files_in_memory = cb;
-                    await setDataInAsyncStorage(
-                      'filesAvailableToDownload',
-                      'true',
-                    );
-                  }
+              await appendActivityEvent({
+                direction: 'inbound',
+                type: type_,
+                status: 'Received',
+                content: cb,
+                metadata: inboundMetadata,
+                operationKey,
+              });
+
+              previous_clipboard_content_hash = hcb;
+
+              await resetReceivingFragments();
+              // validate clipboard size
+              if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                // set clipboard content
+                if (type_ === 'text') {
+                  await setLocalClipboardEchoSuppression(type_, hcb);
+                  Clipboard.setString(cb);
+                } else if (type_ === 'image') {
+                  await setLocalClipboardEchoSuppression(type_, hcb);
+                  block_image_once = true;
+                  await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
+                    cb,
+                  );
+                } else if (type_ === 'files') {
+                  await showFilesDownloadNotification('📥 Download File(s)');
+
+                  files_in_memory = cb;
+                  await setDataInAsyncStorage(
+                    'filesAvailableToDownload',
+                    'true',
+                  );
                 }
+                await appendActivityEvent({
+                  direction: 'inbound',
+                  type: type_,
+                  status: 'Applied',
+                  content: cb,
+                  metadata: inboundMetadata,
+                  operationKey,
+                });
               }
             } catch (e) {
+              await resetLocalClipboardEchoGuards();
               p2pMsg = '❌ P2P Inbound Error: ' + e;
               await p2pStatusMessageChanged();
+              await appendActivityError('inbound', 'text', e);
             }
           };
 
@@ -1462,13 +2074,19 @@ module.exports = async (inputData = null) => {
         }
 
         // send clipboard content
-        const sendClipBoard = async (clipContent, type_ = 'text') => {
+        const sendClipBoard = async (
+          clipContent,
+          type_ = 'text',
+          options = {},
+        ) => {
           if (server_mode === 'P2S') {
-            await sendClipBoardP2S(clipContent, type_);
+            await sendClipBoardP2S(clipContent, type_, options);
           } else if (server_mode === 'P2P') {
-            await sendClipBoardP2P(clipContent, type_);
+            await sendClipBoardP2P(clipContent, type_, options);
           }
         };
+
+        await startAutomaticClipboardCapture();
 
         // terminate service when wsIsRunning is false
         const stopServices = async () => {
@@ -1493,6 +2111,7 @@ module.exports = async (inputData = null) => {
             'filesAvailableToDownload',
             'enable_image_sharing',
             'enable_file_sharing',
+            'enable_shizuku_clipboard_backend',
             'enable_websocket_status_notification',
             'max_clipboard_size_local_limit_bytes',
           ];
@@ -1511,11 +2130,26 @@ module.exports = async (inputData = null) => {
               continue;
             }
 
+            const previousShizukuBackendSetting =
+              runtimeSettings.enable_shizuku_clipboard_backend;
             runtimeSettings = normalizeRuntimeSettings(
               runtimeSettings,
               latest,
               maxsize,
             );
+            if (
+              runtimeSettings.enable_shizuku_clipboard_backend !==
+              previousShizukuBackendSetting
+            ) {
+              await startAutomaticClipboardCapture();
+            }
+            if (
+              runtimeSettings.enable_shizuku_clipboard_backend === 'true' &&
+              activeClipboardBackend === 'paused' &&
+              (await getNativeShizukuStatus()) === 'connected'
+            ) {
+              await startAutomaticClipboardCapture();
+            }
 
             // check if wsIsRunning is true or else terminate the service
             if (latest.wsIsRunning !== 'true') {

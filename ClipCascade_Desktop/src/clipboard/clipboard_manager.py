@@ -397,13 +397,17 @@ class ClipboardManager:
             if isinstance(img, bytes):
                 size_in_bytes = len(img)
             if isinstance(img, Image.Image):
-                with io.BytesIO() as buffer:
-                    img.save(buffer, format=img.format or "PNG")
-                    size_in_bytes = buffer.tell()
+                size_in_bytes = len(ClipboardManager.convert_image_to_png_bytes(img))
 
             return size_in_bytes
         except Exception as e:
             raise IOError(f"Failed to calculate the image size. {e}") from e
+
+    @staticmethod
+    def convert_image_to_png_bytes(img: Image.Image) -> bytes:
+        with io.BytesIO() as buffer:
+            img.save(buffer, format="PNG")
+            return buffer.getvalue()
 
     @staticmethod
     def convert_image_to_base64(img: Image.Image | bytes) -> str:
@@ -423,11 +427,9 @@ class ClipboardManager:
             if isinstance(img, bytes):
                 base64_string = base64.b64encode(img).decode("utf-8")
             if isinstance(img, Image.Image):
-                with io.BytesIO() as buffered:
-                    img.save(buffered, format=img.format or "PNG")
-                    base64_string = base64.b64encode(buffered.getvalue()).decode(
-                        "utf-8"
-                    )
+                base64_string = base64.b64encode(
+                    ClipboardManager.convert_image_to_png_bytes(img)
+                ).decode("utf-8")
 
             return base64_string
         except Exception as e:

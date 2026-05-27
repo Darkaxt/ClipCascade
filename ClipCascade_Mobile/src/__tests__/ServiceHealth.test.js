@@ -36,6 +36,7 @@ describe('runtime settings normalization', () => {
 
   test('updates mutable service settings from async-storage values', () => {
     const current = {
+      enable_shizuku_clipboard_backend: 'false',
       enable_image_sharing: 'true',
       enable_file_sharing: 'true',
       enable_websocket_status_notification: 'false',
@@ -46,6 +47,7 @@ describe('runtime settings normalization', () => {
       normalizeRuntimeSettings(
         current,
         {
+          enable_shizuku_clipboard_backend: 'true',
           enable_image_sharing: 'false',
           enable_file_sharing: 'true',
           enable_websocket_status_notification: 'true',
@@ -54,6 +56,7 @@ describe('runtime settings normalization', () => {
         268435456,
       ),
     ).toEqual({
+      enable_shizuku_clipboard_backend: 'true',
       enable_image_sharing: 'false',
       enable_file_sharing: 'true',
       enable_websocket_status_notification: 'true',

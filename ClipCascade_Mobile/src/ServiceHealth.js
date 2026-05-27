@@ -57,6 +57,10 @@ export const normalizeRuntimeSettings = (
   latestSettings,
   serverMaxSize,
 ) => ({
+  enable_shizuku_clipboard_backend: normalizeBooleanText(
+    latestSettings.enable_shizuku_clipboard_backend,
+    currentSettings.enable_shizuku_clipboard_backend || 'false',
+  ),
   enable_image_sharing: normalizeBooleanText(
     latestSettings.enable_image_sharing,
     currentSettings.enable_image_sharing,

@@ -21,6 +21,7 @@ class MainApplication : Application(), ReactApplication {
             PackageList(this).packages.apply {
               add(ClipboardListenerPackage())
               add(NativeBridgePackage())
+              add(ShizukuClipboardPackage())
             }
 
         override fun getJSMainModuleName(): String = "index"
