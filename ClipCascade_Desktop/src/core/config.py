@@ -90,3 +90,25 @@ class Config:
             ws_url = re.sub(r"/+$", "", ws_url)
 
         return ws_url
+
+    @staticmethod
+    def normalize_websocket_url(data: dict) -> bool:
+        """
+        Repair stale persisted websocket URLs before reconnecting with a saved cookie.
+
+        Older DATA files can contain an HTTP(S) URL in `websocket_url`, which the
+        websocket client rejects with errors such as "scheme https is invalid".
+        Re-derive the URL from the saved server URL and mode when needed.
+        """
+        websocket_url = (data.get("websocket_url") or "").strip().lower()
+        if websocket_url.startswith("ws://") or websocket_url.startswith("wss://"):
+            return False
+
+        server_url = (data.get("server_url") or "").strip()
+        if not server_url:
+            return False
+
+        server_mode = (data.get("server_mode") or "P2S").upper()
+        endpoint = WEBSOCKET_ENDPOINT_P2P if server_mode == "P2P" else WEBSOCKET_ENDPOINT
+        data["websocket_url"] = Config.convert_to_websocket_url(server_url, endpoint)
+        return True

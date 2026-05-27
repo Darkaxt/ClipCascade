@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw
 
 from core.config import Config
 from gui.info import CustomDialog
+from gui.activity import ActivityWindow
+from utils.activity_log import ActivityLog
 from core.constants import *
 
 if PLATFORM != WINDOWS:
@@ -27,6 +29,7 @@ class TaskbarPanel:
         donation_url: str = None,
         ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
+        activity_log: ActivityLog = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -36,6 +39,7 @@ class TaskbarPanel:
         self.donation_url = donation_url
         self.ws_interface = ws_interface
         self.config = config
+        self.activity_log = activity_log or ActivityLog()
 
         self.is_disconnecting = False
         self.disconnecting_items = None
@@ -43,6 +47,8 @@ class TaskbarPanel:
         self.file_download_items = None
         self.previous_stats: str = ""
         self.previous_stats_items = None
+        self._activity_window_lock = threading.Lock()
+        self._activity_window_active = False
 
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
@@ -141,6 +147,7 @@ class TaskbarPanel:
         """
         # Menu items
         menu_items = [
+            item("📋 Open Activity", self._open_activity, default=True),
             Menu.SEPARATOR,
             item("🗒️ Open Logs", self._open_logs),
             item("📂 Program Files", self._open_program_location),
@@ -183,7 +190,6 @@ class TaskbarPanel:
                 item(
                     self.file_download_items[0],
                     self.file_download_items[2],
-                    default=True,
                 ),
             )
 
@@ -317,6 +323,26 @@ class TaskbarPanel:
                 f"Failed to open the program location '{program_location}'.\nError: {e}",
                 msg_type="error",
             ).mainloop()
+
+    def _open_activity(self, icon=None, item=None):
+        with self._activity_window_lock:
+            if self._activity_window_active:
+                return
+            self._activity_window_active = True
+
+        def run_window():
+            try:
+                ActivityWindow(self.activity_log).mainloop()
+            except Exception as e:
+                CustomDialog(
+                    f"Failed to open activity window.\nError: {e}",
+                    msg_type="error",
+                ).mainloop()
+            finally:
+                with self._activity_window_lock:
+                    self._activity_window_active = False
+
+        threading.Thread(target=run_window, daemon=True).start()
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True

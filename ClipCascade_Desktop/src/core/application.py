@@ -7,6 +7,7 @@ from core.constants import *
 from core.config import Config
 from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
+from utils.activity_log import ActivityLog
 from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
 
@@ -56,9 +57,10 @@ class Application:
                 file_name=self.data_file_path
             )  # Maintain a single configuration instance for the entire application lifecycle.
 
+            self.activity_log = ActivityLog(max_rows=50)
             self.request_manager = RequestManager(self.config)
-            self.stomp_manager = STOMPManager(self.config)
-            self.p2p_manager = P2PManager(self.config)
+            self.stomp_manager = STOMPManager(self.config, activity_log=self.activity_log)
+            self.p2p_manager = P2PManager(self.config, activity_log=self.activity_log)
             self.cipher_manager = CipherManager(self.config)
         except Exception as e:
             CustomDialog(
@@ -277,6 +279,8 @@ class Application:
             self.setup_logging()
             self.ensure_single_instance()
             self.config.load()
+            if Config.normalize_websocket_url(self.config.data):
+                logging.info("Normalized persisted websocket URL")
             self.authenticate_and_connect()
             self.config.save()
             update_available = self.get_version_update_status()
@@ -291,6 +295,7 @@ class Application:
                 donation_url=donation_url,
                 ws_interface=self._get_ws_manager(),
                 config=self.config,
+                activity_log=self.activity_log,
             )
             self._get_ws_manager().set_tray_ref(sys_tray)
             sys_tray.run()

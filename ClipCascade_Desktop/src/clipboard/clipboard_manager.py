@@ -9,6 +9,7 @@ import xxhash
 from PIL import Image
 from core.constants import *
 from core.config import Config
+from utils.activity_log import ActivityLog
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -31,8 +32,10 @@ elif PLATFORM.startswith(LINUX):
 
 
 class ClipboardManager:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, activity_log: ActivityLog = None, transport: str = ""):
         self.config = config
+        self.activity_log = activity_log
+        self.transport = transport
         self.previous_clipboard_hash = 0
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
@@ -45,6 +48,24 @@ class ClipboardManager:
         Sets the system tray reference.
         """
         self.sys_tray = sys_tray
+
+    def append_activity(
+        self,
+        direction: str,
+        payload_type: str,
+        status: str,
+        preview: str = "",
+        detail: str = "",
+    ):
+        if self.activity_log is not None:
+            self.activity_log.append(
+                direction=direction,
+                payload_type=payload_type.title(),
+                status=status,
+                preview=preview,
+                transport=self.transport,
+                detail=detail,
+            )
 
     def reset_files_download(self):
         """
@@ -131,13 +152,19 @@ class ClipboardManager:
         )
 
     def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
+        type_ = type_.lower()
         try:
             self.reset_files_download()
 
-            type_ = type_.lower()
             if type_ == "text":
+                preview = ActivityLog.preview_text(content)
+                self.append_activity("Local", type_, "Detected", preview)
                 if self.is_clipboard_size_within_limit(content, type_):
                     callback(content, type_)
+                else:
+                    self.append_activity(
+                        "Local", type_, "Ignored", preview, "Size limit exceeded"
+                    )
 
             elif type_ == "image":
                 if isinstance(content, list):
@@ -147,9 +174,18 @@ class ClipboardManager:
                         )
 
                     content = Image.open(content[0])
+                preview = ActivityLog.preview_image(
+                    content,
+                    ClipboardManager.get_image_size(content),
+                )
+                self.append_activity("Local", type_, "Detected", preview)
                 if self.is_clipboard_size_within_limit(content, type_):
                     content_str = ClipboardManager.convert_image_to_base64(img=content)
                     callback(content_str, type_)
+                else:
+                    self.append_activity(
+                        "Local", type_, "Ignored", preview, "Size limit exceeded"
+                    )
 
             elif type_ == "files":
                 if PLATFORM.startswith(LINUX):
@@ -162,33 +198,67 @@ class ClipboardManager:
                                 temp.append(path)
                         content = temp
 
+                preview = ActivityLog.preview_files(content)
+                self.append_activity("Local", type_, "Detected", preview)
                 if self.is_clipboard_size_within_limit(content, type_):
                     content_str = ClipboardManager.convert_files_to_base64(
                         file_paths=content
                     )
                     if content_str != "{}":  # Check if the JSON string is empty
                         callback(content_str, type_)
+                    else:
+                        self.append_activity(
+                            "Local", type_, "Ignored", preview, "No readable files"
+                        )
+                else:
+                    self.append_activity(
+                        "Local", type_, "Ignored", preview, "Size limit exceeded"
+                    )
         except Exception as e:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
+            self.append_activity("Local", type_, "Error", "", str(e))
 
     def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
+        type_ = type_.lower()
         try:
             if type_ == "text":
                 txt = base64_string
+                preview = ActivityLog.preview_text(txt)
                 if self.is_clipboard_size_within_limit(txt, type_):
                     self.paste(txt, type_)
+                    self.append_activity("Remote", type_, "Applied", preview)
+                else:
+                    self.append_activity(
+                        "Remote", type_, "Ignored", preview, "Size limit exceeded"
+                    )
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
+                preview = ActivityLog.preview_image(
+                    img,
+                    ClipboardManager.get_image_size(img),
+                )
                 if self.is_clipboard_size_within_limit(img, type_):
                     self.paste(img, type_)
+                    self.append_activity("Remote", type_, "Applied", preview)
+                else:
+                    self.append_activity(
+                        "Remote", type_, "Ignored", preview, "Size limit exceeded"
+                    )
             elif type_ == "files":
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
                 )
+                preview = ActivityLog.preview_files(file_objects)
                 if self.is_clipboard_size_within_limit(file_objects, type_):
                     self.paste(file_objects, type_)
+                    self.append_activity("Remote", type_, "Applied", preview)
+                else:
+                    self.append_activity(
+                        "Remote", type_, "Ignored", preview, "Size limit exceeded"
+                    )
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
+            self.append_activity("Remote", type_, "Error", "", str(e))
 
     @staticmethod
     def execute_command(*args, input_data):

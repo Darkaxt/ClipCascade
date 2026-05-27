@@ -14,6 +14,7 @@ from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
+from utils.activity_log import ActivityLog
 from core.constants import *
 from aiortc import (
     RTCPeerConnection,
@@ -30,9 +31,14 @@ else:
     from gui.tray import TaskbarPanel
 
 class P2PManager(WSInterface):
-    def __init__(self, config: Config, is_login_phase=True):
+    def __init__(self, config: Config, is_login_phase=True, activity_log: ActivityLog = None):
         self.config = config
-        self.clipboard_manager = ClipboardManager(self.config)
+        self.activity_log = activity_log
+        self.clipboard_manager = ClipboardManager(
+            self.config,
+            activity_log=self.activity_log,
+            transport="P2P",
+        )
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
         self.sys_tray: TaskbarPanel = None
@@ -717,6 +723,7 @@ class P2PManager(WSInterface):
     async def _send(self, payload: str, payload_type: str = "text"):
         try:
             if self.clipboard_manager.has_clipboard_changed(payload):
+                preview = ActivityLog.preview_payload(payload, payload_type)
                 self.reset_sending_fragment_id()
                 self.reset_receiving_fragments()
 
@@ -761,9 +768,19 @@ class P2PManager(WSInterface):
                         )
                 else:
                     self.reset_sending_fragment_id()
+                    self.append_activity("Local", payload_type, "Sent", preview)
+            else:
+                self.append_activity(
+                    "Local",
+                    payload_type,
+                    "Ignored",
+                    ActivityLog.preview_payload(payload, payload_type),
+                    "Duplicate payload",
+                )
 
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
+            self.append_activity("Local", payload_type, "Error", "", str(e))
 
     def reset_receiving_fragments(self):
         self.receiving_fragments = {}
@@ -821,15 +838,47 @@ class P2PManager(WSInterface):
                     **CipherManager.decode_from_json_string(payload)
                 )
 
+            preview = ActivityLog.preview_payload(payload, payload_type)
+            self.append_activity("Remote", payload_type, "Received", preview)
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
                 self.clipboard_manager.base64_to_clipboard(
                     base64_string=payload, type_=payload_type
                 )
+            else:
+                self.append_activity(
+                    "Remote", payload_type, "Ignored", preview, "Duplicate payload"
+                )
         except json.decoder.JSONDecodeError:
             logging.error("If cipher is enabled, please make sure it is enabled on all devices")
+            self.append_activity(
+                "Remote",
+                "Text",
+                "Error",
+                "",
+                "Unable to decode JSON; check encryption settings",
+            )
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
+            self.append_activity("Remote", "Unknown", "Error", "", str(e))
+
+    def append_activity(
+        self,
+        direction: str,
+        payload_type: str,
+        status: str,
+        preview: str = "",
+        detail: str = "",
+    ):
+        if self.activity_log is not None:
+            self.activity_log.append(
+                direction=direction,
+                payload_type=(payload_type or "text").title(),
+                status=status,
+                preview=preview,
+                transport="P2P",
+                detail=detail,
+            )
 
     @staticmethod
     def fragment_string(s: str, fragment_size: int = FRAGMENT_SIZE) -> list[str]:

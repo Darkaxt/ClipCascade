@@ -35,6 +35,16 @@ Large payload note: the server can be configured for very large messages, but An
 | --- | --- | --- |
 | <img src="docs/android-screenshots/android-settings-service.png" alt="Android Service settings page" width="260" /> | <img src="docs/android-screenshots/android-settings-performance.png" alt="Android Performance settings page" width="260" /> | <img src="docs/android-screenshots/android-settings-help.png" alt="Android Help settings page" width="260" /> |
 
+## Darkaxt Windows Fork
+
+Windows client changes in this fork:
+
+- Left-click the tray icon, or choose **Open Activity** from the right-click menu, to inspect recent clipboard events.
+- The activity view shows memory-only rows for local detection, sends, remote receives, local applies, ignored duplicates, and errors.
+- The normal log records privacy-safe activity metadata only, such as `Local Image Sent via P2S`, without copied text previews or file contents.
+- Persisted `DATA` files with stale HTTP(S) websocket URLs are repaired before saved-cookie reconnects.
+- Windows desktop image payloads are normalized to PNG before sending, avoiding Android decode failures from raw Windows `DIB` clipboard images.
+
 <div align="center">
 
 <table>

@@ -27,6 +27,7 @@ class TaskbarPanel:
         donation_url: str = None,
         ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
+        activity_log=None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
