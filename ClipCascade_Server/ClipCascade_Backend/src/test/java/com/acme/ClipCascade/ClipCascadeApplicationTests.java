@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.service.ApiClientService;
 import com.acme.clipcascade.utils.HashingUtility;
 
@@ -156,6 +157,27 @@ class ClipCascadeApplicationTests {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).contains("ClipCascade Key Manager");
 		assertThat(response.getBody()).contains("/api/key-auth/management-key");
+	}
+
+	@Test
+	void serverUpdateMetadataUsesForkReleaseStream() {
+		assertThat(ServerConstants.APP_VERSION).isEqualTo("3.2.0.5");
+		assertThat(ServerConstants.VERSION_URL).contains("Darkaxt/ClipCascade");
+		assertThat(ServerConstants.METADATA_URL).contains("Darkaxt/ClipCascade");
+		assertThat(ServerConstants.HELP_URL).contains("Darkaxt/ClipCascade");
+	}
+
+	@Test
+	void webUiOnlyShowsServerUpdateForNewerVersion() {
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/assets/js/main.js",
+				HttpMethod.GET,
+				HttpEntity.EMPTY,
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).contains("isVersionGreater(latestServerVersion.server, serverVersion.version)");
+		assertThat(response.getBody()).doesNotContain("serverVersion.version !== latestServerVersion.server");
 	}
 
 	private static String sha3Hex(String input) throws Exception {

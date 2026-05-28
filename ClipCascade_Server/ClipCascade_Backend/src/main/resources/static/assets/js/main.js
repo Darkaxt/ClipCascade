@@ -123,7 +123,7 @@ $(function () {
           .then((serverVersion) => {
             fetchLatestServerVersion()
               .then((latestServerVersion) => {
-                if (serverVersion.version !== latestServerVersion.server) {
+                if (isVersionGreater(latestServerVersion.server, serverVersion.version)) {
                   $(SELECTORS.updateLink).text(
                     `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
                   );
@@ -225,6 +225,39 @@ function showSection(selector) {
 }
 function hideSection(selector) {
   $(selector).css("display", "none");
+}
+function isVersionGreater(candidateVersion, currentVersion) {
+  const candidateParts = parseVersionParts(candidateVersion);
+  const currentParts = parseVersionParts(currentVersion);
+  if (!candidateParts || !currentParts) {
+    return false;
+  }
+
+  const maxLength = Math.max(candidateParts.length, currentParts.length);
+  for (let i = 0; i < maxLength; i++) {
+    const candidatePart = candidateParts[i] || 0;
+    const currentPart = currentParts[i] || 0;
+    if (candidatePart > currentPart) {
+      return true;
+    }
+    if (candidatePart < currentPart) {
+      return false;
+    }
+  }
+
+  return false;
+}
+function parseVersionParts(version) {
+  if (!version || typeof version !== "string") {
+    return null;
+  }
+
+  const parts = version.split(".").map((part) => Number(part));
+  if (parts.some((part) => !Number.isInteger(part) || part < 0)) {
+    return null;
+  }
+
+  return parts;
 }
 function showStatusMessage(message, type) {
   // type can be 'success', 'danger', 'warning', 'info'

@@ -2,16 +2,16 @@ package com.acme.clipcascade.constants;
 
 public class ServerConstants {
     // App version
-    public static final String APP_VERSION = "3.1.1";
+    public static final String APP_VERSION = "3.2.0.5";
 
     // Version URL
-    public static final String VERSION_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json";
+    public static final String VERSION_URL = "https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/version.json";
 
     // Metadata URL
-    public static final String METADATA_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json";
+    public static final String METADATA_URL = "https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/metadata.json";
 
     // Help URL
-    public static final String HELP_URL = "https://github.com/Sathvik-Rao/ClipCascade/blob/main/README.md";
+    public static final String HELP_URL = "https://github.com/Darkaxt/ClipCascade/blob/main/README.md";
 
     // Captcha Session ID
     public static final String CAPTCHA_SESSION_ID = "captcha_answer";
