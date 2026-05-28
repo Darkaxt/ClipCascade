@@ -12,6 +12,7 @@ describe('settings placement', () => {
       'save_password',
       'api_key',
       'api_client_name',
+      'sync_encryption_key',
     ]);
 
     expect(LOGIN_EXTRA_CONFIG_KEYS).not.toEqual(

@@ -126,6 +126,7 @@ class Application:
         # Attempt to connect with an existing session cookie or API key.
         if self.config.data.get("cookie") or self.config.data.get("api_key"):
             try:
+                self._configure_encryption_key()
                 self._configure_server_connection()
                 ws_conn_successful, msg = self._get_ws_manager().connect()
                 if ws_conn_successful:
@@ -163,9 +164,14 @@ class Application:
                 raw_password = self.config.data[
                     "password"
                 ]  # Store the raw password temporarily for hashing
-                self.config.data["password"] = (
-                    CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
-                )  # Hash the password
+                if raw_password:
+                    self.config.data["password"] = (
+                        CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
+                    )  # Hash the password
+                elif not self.request_manager.has_api_key():
+                    self.config.data["password"] = (
+                        CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
+                    )
 
             login_successful, msg_login, self.config.data["cookie"] = (
                 self.request_manager.login()
@@ -181,9 +187,7 @@ class Application:
                 if ws_conn_successful:
                     self._get_ws_manager().is_login_phase = False
                     if self.config.data["cipher_enabled"]:
-                        self.config.data["hashed_password"] = (
-                            self.cipher_manager.hash_password(raw_password)
-                        )
+                        self._configure_encryption_key(raw_password)
                     if not self.config.data["save_password"]:
                         self.config.data["password"] = ""
                     if display_login_success_dialog:
@@ -226,6 +230,29 @@ class Application:
             return self.p2p_manager
         else:
             return self.stomp_manager
+
+    def _configure_encryption_key(self, raw_password: str = None):
+        if not self.config.data.get("cipher_enabled"):
+            self.config.data["hashed_password"] = None
+            return
+
+        sync_encryption_key = (self.config.data.get("sync_encryption_key") or "").strip()
+        if sync_encryption_key:
+            self.config.data["hashed_password"] = CipherManager.sync_encryption_key_to_bytes(
+                sync_encryption_key
+            )
+            return
+
+        if raw_password is not None:
+            self.config.data["hashed_password"] = self.cipher_manager.hash_password(
+                raw_password
+            )
+            return
+
+        if not self.config.data.get("hashed_password"):
+            raise ValueError(
+                "Encryption is enabled, but no password-derived key or sync encryption key is configured."
+            )
 
     def get_version_update_status(self) -> list:
         """
@@ -272,6 +299,7 @@ class Application:
             self.config.data["api_key"] = ""
             self.config.data["api_client_id"] = ""
             self.config.data["api_client_name"] = ""
+            self.config.data["sync_encryption_key"] = ""
             self.config.data["maxsize"] = None
             self.config.data["password"] = ""
             self.config.data["csrf_token"] = ""

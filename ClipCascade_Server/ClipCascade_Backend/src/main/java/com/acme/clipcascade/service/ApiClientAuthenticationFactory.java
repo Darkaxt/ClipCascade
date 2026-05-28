@@ -15,7 +15,8 @@ public class ApiClientAuthenticationFactory {
                 user,
                 null,
                 client.getClientId(),
-                client.getClientName());
+                client.getClientName(),
+                ApiClientService.scopesFromString(client.getScopes()));
 
         return new UsernamePasswordAuthenticationToken(
                 principal,

@@ -10,6 +10,12 @@ from core.config import Config  # noqa: E402
 
 
 class ConfigWebSocketUrlTest(unittest.TestCase):
+    def test_default_config_has_sync_encryption_key_slot(self):
+        config = Config()
+
+        self.assertIn("sync_encryption_key", config.data)
+        self.assertEqual(config.data["sync_encryption_key"], "")
+
     def test_normalizes_stale_https_websocket_url_for_p2s(self):
         data = {
             "server_url": "https://aiostreams-egress.tail94fa2c.ts.net",

@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ClipCascade Key Manager</title>
+    <link rel="icon" type="image/png" href="/assets/images/logo.png" />
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --panel: #ffffff;
+        --ink: #18212f;
+        --muted: #647083;
+        --line: #d8dee8;
+        --accent: #0f8b8d;
+        --accent-dark: #086668;
+        --danger: #b42318;
+        --danger-bg: #fff1f0;
+        --ok-bg: #ecfdf3;
+        --warn-bg: #fffaeb;
+        --shadow: 0 14px 36px rgba(24, 33, 47, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .shell {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 20px 42px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .brand img {
+        width: 34px;
+        height: 34px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 2px;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: 18px;
+        margin-bottom: 14px;
+      }
+
+      h3 {
+        font-size: 16px;
+        margin-bottom: 10px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+        gap: 18px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        border-radius: 8px;
+        padding: 18px;
+      }
+
+      .panel + .panel {
+        margin-top: 18px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 5px;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+        color: var(--ink);
+        padding: 10px 11px;
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 150px;
+        resize: vertical;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+        white-space: pre;
+      }
+
+      input:focus,
+      textarea:focus,
+      select:focus {
+        outline: 2px solid rgba(15, 139, 141, 0.22);
+        border-color: var(--accent);
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        color: var(--muted);
+      }
+
+      .checkbox-row input {
+        width: auto;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      button {
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 9px 13px;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #fff;
+      }
+
+      button.primary:hover {
+        background: var(--accent-dark);
+      }
+
+      button.secondary {
+        background: #fff;
+        border-color: var(--line);
+        color: var(--ink);
+      }
+
+      button.secondary:hover {
+        background: #f2f5f8;
+      }
+
+      button.danger {
+        background: var(--danger-bg);
+        color: var(--danger);
+        border-color: #ffc9c3;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .status {
+        display: none;
+        border-radius: 6px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+      }
+
+      .status.ok {
+        display: block;
+        background: var(--ok-bg);
+        border-color: #abefc6;
+      }
+
+      .status.warn {
+        display: block;
+        background: var(--warn-bg);
+        border-color: #fedf89;
+      }
+
+      .status.error {
+        display: block;
+        background: var(--danger-bg);
+        border-color: #fecdca;
+        color: var(--danger);
+      }
+
+      .auth-state {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fbfcfe;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        padding: 10px 9px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+        word-break: break-word;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .scope-chip {
+        display: inline-block;
+        margin: 0 4px 4px 0;
+        padding: 3px 7px;
+        border-radius: 999px;
+        background: #e8f3f4;
+        color: var(--accent-dark);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .output {
+        display: none;
+      }
+
+      .output.visible {
+        display: grid;
+        gap: 12px;
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 18px 0 4px;
+      }
+
+      @media (max-width: 860px) {
+        .grid,
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <img src="/assets/images/logo.png" alt="" />
+          <div>
+            <h1>ClipCascade Key Manager</h1>
+            <div class="muted">Sessionless API-key control plane</div>
+          </div>
+        </div>
+        <a href="/" class="muted">Back to app</a>
+      </header>
+
+      <div class="grid">
+        <section>
+          <div class="panel">
+            <h2>Unlock Management</h2>
+            <div id="status" class="status"></div>
+            <div class="stack" style="margin-top: 12px">
+              <div>
+                <label for="username">Username</label>
+                <input id="username" autocomplete="username" value="admin" />
+              </div>
+              <div>
+                <label for="password">Password</label>
+                <input id="password" type="password" autocomplete="current-password" />
+              </div>
+              <div>
+                <label for="managementClientName">Management key name</label>
+                <input id="managementClientName" value="Browser key manager" />
+              </div>
+              <label class="checkbox-row">
+                <input id="rememberKey" type="checkbox" />
+                Remember management key on this browser
+              </label>
+              <div class="button-row">
+                <button id="mintManagementKey" class="primary" type="button">
+                  Mint Management Key
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Use Existing Key</h2>
+            <div class="stack">
+              <div>
+                <label for="existingManagementKey">Management API key</label>
+                <input
+                  id="existingManagementKey"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="cck_..."
+                />
+              </div>
+              <div class="button-row">
+                <button id="useManagementKey" class="secondary" type="button">
+                  Use Key
+                </button>
+                <button id="forgetManagementKey" class="secondary" type="button">
+                  Forget
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="stack">
+          <div class="panel">
+            <div class="auth-state">
+              <div>
+                <strong id="authLabel">Not connected</strong>
+                <div id="authDetails" class="muted">Mint or paste a management key.</div>
+              </div>
+              <button id="refreshKeys" class="secondary" type="button" disabled>
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Create Device Key</h2>
+            <div class="stack">
+              <div class="two-col">
+                <div>
+                  <label for="deviceName">Client name</label>
+                  <input id="deviceName" placeholder="Android phone" />
+                </div>
+                <div>
+                  <label for="scopeSelect">Scopes</label>
+                  <select id="scopeSelect">
+                    <option value="sync" selected>Sync only</option>
+                    <option value="sync,manage_keys">Sync + manage keys</option>
+                    <option value="manage_keys">Manage keys only</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label for="syncEncryptionKey">Sync encryption key</label>
+                <input
+                  id="syncEncryptionKey"
+                  placeholder="Generated in browser, never sent to the server"
+                />
+              </div>
+              <div class="button-row">
+                <button id="generateSyncKey" class="secondary" type="button">
+                  Generate Sync Key
+                </button>
+                <button id="createDeviceKey" class="primary" type="button" disabled>
+                  Create Device Key
+                </button>
+              </div>
+              <p class="muted">
+                The device API key is stored by the server as a hash. The sync
+                encryption key is only placed into the setup bundle shown here.
+              </p>
+            </div>
+          </div>
+
+          <div id="bundleOutput" class="panel output">
+            <h2>Setup Bundle</h2>
+            <div class="button-row">
+              <button id="copyBundle" class="secondary" type="button">Copy Bundle</button>
+              <button id="copyApiKey" class="secondary" type="button">Copy API Key</button>
+              <button id="copySyncKey" class="secondary" type="button">Copy Sync Key</button>
+            </div>
+            <textarea id="setupBundle" readonly></textarea>
+          </div>
+
+          <div class="panel">
+            <h2>Registered API Keys</h2>
+            <div id="keyTableHost" class="empty">Authorize with a management key to list keys.</div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script src="/assets/js/sha3.min.js"></script>
+    <script>
+      const STORAGE_KEY = "clipcascade.managementApiKey";
+      const state = {
+        managementKey: "",
+        remember: false,
+        username: "",
+        latestDeviceApiKey: "",
+        latestSyncKey: "",
+      };
+
+      const byId = (id) => document.getElementById(id);
+      const controls = {
+        status: byId("status"),
+        username: byId("username"),
+        password: byId("password"),
+        managementClientName: byId("managementClientName"),
+        rememberKey: byId("rememberKey"),
+        existingManagementKey: byId("existingManagementKey"),
+        mintManagementKey: byId("mintManagementKey"),
+        useManagementKey: byId("useManagementKey"),
+        forgetManagementKey: byId("forgetManagementKey"),
+        authLabel: byId("authLabel"),
+        authDetails: byId("authDetails"),
+        refreshKeys: byId("refreshKeys"),
+        deviceName: byId("deviceName"),
+        scopeSelect: byId("scopeSelect"),
+        syncEncryptionKey: byId("syncEncryptionKey"),
+        generateSyncKey: byId("generateSyncKey"),
+        createDeviceKey: byId("createDeviceKey"),
+        bundleOutput: byId("bundleOutput"),
+        setupBundle: byId("setupBundle"),
+        copyBundle: byId("copyBundle"),
+        copyApiKey: byId("copyApiKey"),
+        copySyncKey: byId("copySyncKey"),
+        keyTableHost: byId("keyTableHost"),
+      };
+
+      function setStatus(kind, message) {
+        controls.status.className = `status ${kind || ""}`.trim();
+        controls.status.textContent = message || "";
+      }
+
+      function setAuthorized(apiKey, username) {
+        state.managementKey = apiKey.trim();
+        state.username = username || state.username || "";
+        controls.existingManagementKey.value = state.managementKey;
+        controls.authLabel.textContent = "Management key active";
+        controls.authDetails.textContent = state.username
+          ? `Managing keys for ${state.username}`
+          : "Managing keys with pasted API key";
+        controls.refreshKeys.disabled = false;
+        controls.createDeviceKey.disabled = false;
+        if (state.remember) {
+          localStorage.setItem(STORAGE_KEY, state.managementKey);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+
+      function resetAuthorized() {
+        state.managementKey = "";
+        state.username = "";
+        controls.existingManagementKey.value = "";
+        controls.authLabel.textContent = "Not connected";
+        controls.authDetails.textContent = "Mint or paste a management key.";
+        controls.refreshKeys.disabled = true;
+        controls.createDeviceKey.disabled = true;
+        controls.keyTableHost.className = "empty";
+        controls.keyTableHost.textContent = "Authorize with a management key to list keys.";
+        localStorage.removeItem(STORAGE_KEY);
+      }
+
+      async function requestJson(path, options = {}, requireManagementKey = true) {
+        const headers = Object.assign(
+          { "Content-Type": "application/json" },
+          options.headers || {}
+        );
+        if (requireManagementKey) {
+          headers["X-ClipCascade-Api-Key"] = state.managementKey;
+        }
+        const response = await fetch(path, Object.assign({}, options, { headers }));
+        const text = await response.text();
+        const body = text ? safeParseJson(text) : null;
+        if (!response.ok) {
+          throw new Error(
+            (body && body.message) ||
+              (typeof body === "string" ? body : text) ||
+              `HTTP ${response.status}`
+          );
+        }
+        return body;
+      }
+
+      function safeParseJson(text) {
+        try {
+          return JSON.parse(text);
+        } catch (error) {
+          return text;
+        }
+      }
+
+      function normalizeScopes(raw) {
+        return String(raw || "sync")
+          .split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean);
+      }
+
+      function generateBase64Url(bytes) {
+        let binary = "";
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte);
+        });
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      }
+
+      function generateSyncEncryptionKey() {
+        const bytes = new Uint8Array(32);
+        crypto.getRandomValues(bytes);
+        return `ccsk_${generateBase64Url(bytes)}`;
+      }
+
+      async function mintManagementKey() {
+        const username = controls.username.value.trim();
+        const password = controls.password.value;
+        const clientName = controls.managementClientName.value.trim() || "Browser key manager";
+        if (!username || !password) {
+          setStatus("error", "Username and password are required.");
+          return;
+        }
+        setStatus("warn", "Minting management key...");
+        const payload = {
+          username,
+          passwordHash: sha3_512(password),
+          clientName,
+        };
+        const created = await requestJson(
+          "/api/key-auth/management-key",
+          { method: "POST", body: JSON.stringify(payload) },
+          false
+        );
+        controls.password.value = "";
+        state.remember = controls.rememberKey.checked;
+        setAuthorized(created.apiKey, created.username);
+        setStatus("ok", "Management key minted. It has manage_keys scope only.");
+        await loadKeys();
+      }
+
+      async function useExistingManagementKey() {
+        const apiKey = controls.existingManagementKey.value.trim();
+        if (!apiKey) {
+          setStatus("error", "Paste a management API key first.");
+          return;
+        }
+        state.remember = controls.rememberKey.checked;
+        state.managementKey = apiKey;
+        setStatus("warn", "Checking management key...");
+        await loadKeys();
+        setAuthorized(apiKey, state.username);
+        setStatus("ok", "Management key accepted.");
+      }
+
+      async function loadKeys() {
+        const keys = await requestJson("/api/client-keys", { method: "GET" });
+        if (Array.isArray(keys) && keys.length > 0) {
+          state.username = keys[0].username || state.username;
+        }
+        renderKeys(Array.isArray(keys) ? keys : []);
+      }
+
+      function renderKeys(keys) {
+        if (!keys.length) {
+          controls.keyTableHost.className = "empty";
+          controls.keyTableHost.textContent = "No API keys registered yet.";
+          return;
+        }
+
+        controls.keyTableHost.className = "";
+        const rows = keys
+          .map((key) => {
+            const scopes = (key.scopes || [])
+              .map((scope) => `<span class="scope-chip">${escapeHtml(scope)}</span>`)
+              .join("");
+            const enabled = key.enabled ? "Enabled" : "Revoked";
+            return `
+              <tr>
+                <td>${escapeHtml(key.clientName || key.clientId)}</td>
+                <td>${scopes}</td>
+                <td>${enabled}</td>
+                <td>${formatTime(key.createdAt)}</td>
+                <td>${key.lastUsedAt ? formatTime(key.lastUsedAt) : "Never"}</td>
+                <td>
+                  <button class="danger" type="button" data-revoke="${escapeHtml(
+                    key.clientId
+                  )}" ${key.enabled ? "" : "disabled"}>Revoke</button>
+                </td>
+              </tr>`;
+          })
+          .join("");
+
+        controls.keyTableHost.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Scopes</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+
+        controls.keyTableHost.querySelectorAll("[data-revoke]").forEach((button) => {
+          button.addEventListener("click", () => revokeKey(button.dataset.revoke));
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function formatTime(epochMillis) {
+        if (!epochMillis) {
+          return "";
+        }
+        return new Date(epochMillis).toLocaleString();
+      }
+
+      async function revokeKey(clientId) {
+        if (!clientId || !confirm("Revoke this API key?")) {
+          return;
+        }
+        setStatus("warn", "Revoking API key...");
+        await requestJson(`/api/client-keys/${encodeURIComponent(clientId)}`, {
+          method: "DELETE",
+        });
+        setStatus("ok", "API key revoked.");
+        await loadKeys();
+      }
+
+      async function createDeviceKey() {
+        if (!state.managementKey) {
+          setStatus("error", "Authorize with a management key first.");
+          return;
+        }
+        const clientName = controls.deviceName.value.trim();
+        if (!clientName) {
+          setStatus("error", "Client name is required.");
+          return;
+        }
+        let syncKey = controls.syncEncryptionKey.value.trim();
+        if (!syncKey) {
+          syncKey = generateSyncEncryptionKey();
+          controls.syncEncryptionKey.value = syncKey;
+        }
+        if (!/^ccsk_[A-Za-z0-9_-]{43}$/.test(syncKey)) {
+          setStatus("error", "Sync encryption key must be a ccsk_ 256-bit key.");
+          return;
+        }
+
+        const scopes = normalizeScopes(controls.scopeSelect.value);
+        setStatus("warn", "Creating device key...");
+        const created = await requestJson("/api/client-keys", {
+          method: "POST",
+          body: JSON.stringify({ clientName, scopes }),
+        });
+
+        state.latestDeviceApiKey = created.apiKey;
+        state.latestSyncKey = syncKey;
+        renderSetupBundle(created, syncKey);
+        setStatus("ok", "Device key created. Copy the setup bundle now; the API key is shown once.");
+        await loadKeys();
+      }
+
+      function renderSetupBundle(created, syncKey) {
+        const bundle = {
+          type: "clipcascade-setup-v1",
+          serverUrl: window.location.origin,
+          username: created.username || state.username || controls.username.value.trim(),
+          apiKey: created.apiKey,
+          clientId: created.clientId,
+          clientName: created.clientName,
+          scopes: created.scopes || normalizeScopes(controls.scopeSelect.value),
+          cipherEnabled: true,
+          encryptionMode: "sync_key",
+          syncEncryptionKey: syncKey,
+        };
+        controls.setupBundle.value = JSON.stringify(bundle, null, 2);
+        controls.bundleOutput.classList.add("visible");
+      }
+
+      async function copyText(value, label) {
+        if (!value) {
+          setStatus("error", `${label} is empty.`);
+          return;
+        }
+        await navigator.clipboard.writeText(value);
+        setStatus("ok", `${label} copied.`);
+      }
+
+      controls.mintManagementKey.addEventListener("click", () =>
+        mintManagementKey().catch((error) => setStatus("error", error.message))
+      );
+      controls.useManagementKey.addEventListener("click", () =>
+        useExistingManagementKey().catch((error) => {
+          resetAuthorized();
+          setStatus("error", error.message);
+        })
+      );
+      controls.forgetManagementKey.addEventListener("click", () => {
+        resetAuthorized();
+        setStatus("ok", "Management key removed from this browser.");
+      });
+      controls.refreshKeys.addEventListener("click", () =>
+        loadKeys().catch((error) => setStatus("error", error.message))
+      );
+      controls.generateSyncKey.addEventListener("click", () => {
+        controls.syncEncryptionKey.value = generateSyncEncryptionKey();
+        setStatus("ok", "Generated a new sync encryption key in this browser.");
+      });
+      controls.createDeviceKey.addEventListener("click", () =>
+        createDeviceKey().catch((error) => setStatus("error", error.message))
+      );
+      controls.copyBundle.addEventListener("click", () =>
+        copyText(controls.setupBundle.value, "Setup bundle")
+      );
+      controls.copyApiKey.addEventListener("click", () =>
+        copyText(state.latestDeviceApiKey, "API key")
+      );
+      controls.copySyncKey.addEventListener("click", () =>
+        copyText(state.latestSyncKey, "Sync encryption key")
+      );
+
+      controls.rememberKey.addEventListener("change", () => {
+        state.remember = controls.rememberKey.checked;
+        if (state.managementKey && state.remember) {
+          localStorage.setItem(STORAGE_KEY, state.managementKey);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      });
+
+      const rememberedKey = localStorage.getItem(STORAGE_KEY);
+      if (rememberedKey) {
+        controls.rememberKey.checked = true;
+        controls.existingManagementKey.value = rememberedKey;
+        state.remember = true;
+        setStatus("warn", "A remembered management key is available. Click Use Key to unlock.");
+      }
+    </script>
+  </body>
+</html>

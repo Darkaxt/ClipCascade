@@ -4,6 +4,7 @@ export const LOGIN_EXTRA_CONFIG_KEYS = [
   'save_password',
   'api_key',
   'api_client_name',
+  'sync_encryption_key',
 ];
 
 export const SETTINGS_CATEGORIES = [

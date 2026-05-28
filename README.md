@@ -1160,6 +1160,36 @@ Defines the STOMP broker password for external message handling.
 
 * * * * * * *
 
+### 🔑 API-Key Setup Bundles
+
+This fork includes a sessionless key manager at:
+
+```text
+/keys.html
+```
+
+Use it from your ClipCascade server URL, for example:
+
+```text
+https://your-clipcascade-server.example/keys.html
+```
+
+The key manager has two key types:
+
+- **Management API key**: can list, create, and revoke API keys for the same user. You can mint one by entering the normal username/password once, or paste an existing management key. Key management then uses `X-ClipCascade-Api-Key` and does not depend on HTTP sessions.
+- **Sync API key**: used by Windows and Android clients for normal clipboard transport.
+
+When creating a device key, the key manager also generates a client-side-only **sync encryption key** (`ccsk_...`). This key is placed in the setup bundle so clients can encrypt/decrypt clipboard payloads without needing the account password during normal operation. The server never stores this sync encryption key.
+
+Setup bundle import is supported in:
+
+- **Windows desktop**: click **Import Setup Bundle** on the login window.
+- **Android**: paste the bundle into **Setup Bundle** on the login screen and tap **Import Setup Bundle**.
+
+Legacy password-derived encryption still works when no `sync_encryption_key` is configured. For API-key-first setups, prefer setup bundles containing both a sync API key and a sync encryption key.
+
+* * * * * * *
+
 ### 🔒 End-to-End Encryption Configuration for Clipboard Data
 
 When encryption is enabled, clipboard data is encrypted directly on the client devices, ensuring true end-to-end encryption. The server does not store the encryption key, offering maximum security for your data.

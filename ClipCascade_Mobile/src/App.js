@@ -57,6 +57,10 @@ import {
 } from './SettingsConfig';
 import SettingsPage from './SettingsPage';
 import {
+  applySetupBundleToData,
+  syncEncryptionKeyToBase64,
+} from './SetupBundle';
+import {
   getConnectedHeaderActions,
   getConnectedServiceActions,
 } from './ServiceControls';
@@ -88,7 +92,7 @@ import { shouldShowNewVersion } from './VersionCheck';
  */
 
 // App version
-const APP_VERSION = '3.2.0.3';
+const APP_VERSION = '3.2.0.4';
 
 // Main App
 export default function App() {
@@ -142,6 +146,7 @@ export default function App() {
     api_key: '',
     api_client_id: '',
     api_client_name: '',
+    sync_encryption_key: '',
     hashed_password: '',
     csrf_token: '',
     maxsize: '',
@@ -449,6 +454,40 @@ export default function App() {
     return sha3_512(input).toLowerCase();
   };
 
+  const configureEncryptionKey = async (data_s, encryptionPassword) => {
+    if (data_s.cipher_enabled !== 'true') {
+      data_s.hashed_password = '';
+      return [true, '', data_s];
+    }
+
+    if (String(data_s.sync_encryption_key || '').trim() !== '') {
+      try {
+        data_s.hashed_password = syncEncryptionKeyToBase64(
+          data_s.sync_encryption_key,
+        );
+        return [true, 'Using sync encryption key', data_s];
+      } catch (error) {
+        return [false, error, data_s];
+      }
+    }
+
+    if (!encryptionPassword) {
+      return [
+        false,
+        'Encryption is enabled but no password or sync encryption key is configured.',
+        data_s,
+      ];
+    }
+
+    const hashResult = await hash(data_s, encryptionPassword);
+    data_s = hashResult[2];
+    if (!hashResult[0]) {
+      return [false, hashResult[1], data_s];
+    }
+    data_s.hashed_password = hashResult[1].toString('base64');
+    return [true, 'Using password-derived encryption key', data_s];
+  };
+
   // Function to validate session
   const validateSession = async data_s => {
     try {
@@ -551,7 +590,7 @@ export default function App() {
   };
 
   // Login
-  const login = async (data_s, password_s) => {
+  const login = async (data_s, password_s, encryptionPassword) => {
     try {
       if (hasApiKey(data_s)) {
         const validResult = await validateSession(data_s);
@@ -566,17 +605,20 @@ export default function App() {
           return configResult;
         }
 
-        if (data_s.cipher_enabled === 'true') {
-          const hashResult = await hash(data_s, password);
-          data_s = hashResult[2];
-          if (!hashResult[0]) {
+        const encryptionResult = await configureEncryptionKey(
+          data_s,
+          encryptionPassword,
+        );
+        data_s = encryptionResult[2];
+        if (!encryptionResult[0]) {
+          if (data_s.cipher_enabled === 'true') {
             return [
               false,
-              'API key accepted but error generating hash: ' + hashResult[1],
+              'API key accepted but error configuring encryption: ' +
+                encryptionResult[1],
               data_s,
             ];
           }
-          data_s.hashed_password = hashResult[1].toString('base64');
         }
 
         return [true, 'API key accepted', data_s];
@@ -661,18 +703,20 @@ export default function App() {
           ];
         }
 
-        // Hash the password for encryption
-        if (data_s.cipher_enabled === 'true') {
-          const hashResult = await hash(data_s, password);
-          data_s = hashResult[2];
-          if (!hashResult[0]) {
+        const encryptionResult = await configureEncryptionKey(
+          data_s,
+          encryptionPassword,
+        );
+        data_s = encryptionResult[2];
+        if (!encryptionResult[0]) {
+          if (data_s.cipher_enabled === 'true') {
             return [
               false,
-              'Login successful but error generating hash: ' + hashResult[1],
+              'Login successful but error configuring encryption: ' +
+                encryptionResult[1],
               data_s,
             ];
           }
-          data_s.hashed_password = hashResult[1].toString('base64');
         }
 
         return [true, 'Login successful: ' + loginResponse.status, data_s];
@@ -740,6 +784,7 @@ export default function App() {
       await setDataInAsyncStorage('api_key', '');
       await setDataInAsyncStorage('api_client_id', '');
       await setDataInAsyncStorage('api_client_name', '');
+      await setDataInAsyncStorage('sync_encryption_key', '');
       setEnableWSPage(false);
       setEnableLoginPage(true);
       setLoginStatusMessage('');
@@ -748,6 +793,7 @@ export default function App() {
         api_key: '',
         api_client_id: '',
         api_client_name: '',
+        sync_encryption_key: '',
         csrf_token: '',
       }));
 
@@ -928,6 +974,7 @@ export default function App() {
 
   // password
   const [password, setPassword] = useState('');
+  const [setupBundleInput, setSetupBundleInput] = useState('');
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
@@ -950,8 +997,13 @@ export default function App() {
       await NativeBridgeModule.clearCookies();
 
       let password_s = null;
-      if (pass === null) {
+      const usesPasswordlessApiKey =
+        hasApiKey(data_s_c || data) &&
+        String((data_s_c || data).sync_encryption_key || '').trim() !== '';
+      let encryptionPassword = '';
+      if (pass === null && !usesPasswordlessApiKey) {
         password_s = await stringToSHA3_512LowercaseHex(password);
+        encryptionPassword = password;
       } else {
         // saved password
         password_s = pass;
@@ -972,7 +1024,7 @@ export default function App() {
       let loginResult;
       do {
         iteration++;
-        loginResult = await login(data_s, password_s);
+        loginResult = await login(data_s, password_s, encryptionPassword);
       } while (!loginResult[0] && iteration < MAX_LOGIN_AUTO_RETRY);
 
       data_s = loginResult[2];
@@ -1121,6 +1173,21 @@ export default function App() {
             />
           </View>
         );
+      case 'sync_encryption_key':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>Sync Encryption Key:</Text>
+            <TextInput
+              style={styles.input}
+              value={data.sync_encryption_key}
+              onChangeText={text =>
+                handleInputChange('sync_encryption_key', text.trim())
+              }
+              secureTextEntry
+              autoCapitalize="none"
+            />
+          </View>
+        );
       default:
         return null;
     }
@@ -1193,6 +1260,36 @@ export default function App() {
               }
               autoCapitalize="none"
             />
+          </View>
+          <View style={styles.setupBundleBlock}>
+            <Text style={styles.label}>Setup Bundle:</Text>
+            <TextInput
+              style={[styles.input, styles.setupBundleInput]}
+              value={setupBundleInput}
+              onChangeText={setSetupBundleInput}
+              multiline
+              autoCapitalize="none"
+              placeholder="Paste clipcascade-setup-v1 JSON"
+            />
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                try {
+                  const nextData = applySetupBundleToData(
+                    data,
+                    setupBundleInput,
+                  );
+                  setData(nextData);
+                  setPassword('');
+                  setSetupBundleInput('');
+                  setLoginStatusMessage('✅ Setup bundle imported.');
+                } catch (error) {
+                  setLoginStatusMessage('❌ Invalid setup bundle: ' + error);
+                }
+              }}
+            >
+              <Text style={styles.loginButtonText}>Import Setup Bundle</Text>
+            </TouchableOpacity>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Enable Encryption (recommended):</Text>
@@ -1567,6 +1664,24 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     alignItems: 'center',
     marginVertical: 10,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#005c78',
+    borderRadius: 5,
+    marginTop: 10,
+    maxWidth: 320,
+    minWidth: 180,
+    padding: 10,
+  },
+  setupBundleBlock: {
+    marginBottom: 10,
+  },
+  setupBundleInput: {
+    flex: 0,
+    minHeight: 96,
+    textAlignVertical: 'top',
   },
   loginButtonText: {
     color: 'white',

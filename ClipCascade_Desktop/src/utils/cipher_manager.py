@@ -42,6 +42,22 @@ class CipherManager:
         return cipher.decrypt_and_verify(ciphertext, tag).decode()
 
     @staticmethod
+    def sync_encryption_key_to_bytes(sync_encryption_key: str) -> bytes:
+        if not sync_encryption_key or not sync_encryption_key.startswith("ccsk_"):
+            raise ValueError("Sync encryption key must start with ccsk_")
+
+        encoded_key = sync_encryption_key[5:].strip()
+        padding = "=" * (-len(encoded_key) % 4)
+        try:
+            key = base64.urlsafe_b64decode((encoded_key + padding).encode("ascii"))
+        except Exception as exc:
+            raise ValueError("Sync encryption key is not valid base64url") from exc
+
+        if len(key) != 32:
+            raise ValueError("Sync encryption key must decode to 32 bytes")
+        return key
+
+    @staticmethod
     def encode_to_json_string(**kwargs: bytes) -> str:
         """
         Convert bytes values to Base64 and create a JSON string.

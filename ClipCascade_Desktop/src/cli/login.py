@@ -5,6 +5,7 @@ import re
 from core.config import Config
 from cli.info import CustomDialog
 from core.constants import *
+from utils.setup_bundle import apply_setup_bundle_to_config
 
 
 class LoginForm:
@@ -45,13 +46,26 @@ class LoginForm:
             return False
 
     def mainloop(self):
+        setup_bundle = input("setup bundle JSON (optional, paste one line) []: ").strip()
+        if setup_bundle:
+            try:
+                apply_setup_bundle_to_config(self.config, setup_bundle)
+                CustomDialog("Setup bundle imported.").mainloop()
+            except Exception as exc:
+                CustomDialog(
+                    f"Invalid setup bundle\n{exc}",
+                    msg_type="error",
+                ).mainloop()
+
         # save data to config
         self.config.data["username"] = (
             input(f"username [{self.config.data['username']}]: ")
             or self.config.data["username"]
         )
 
-        self.config.data["password"] = getpass.getpass("password: ")
+        self.config.data["password"] = getpass.getpass(
+            "password (optional when API key + sync encryption key are set): "
+        )
 
         server_url = (
             input(f"server url [{self.config.data['server_url']}]: ")
@@ -216,6 +230,14 @@ class LoginForm:
                 f"api client name [{self.config.data.get('api_client_name') or ''}]: "
             )
             or self.config.data.get("api_client_name")
+            or ""
+        ).strip()
+
+        self.config.data["sync_encryption_key"] = (
+            input(
+                f"sync encryption key [{self.config.data.get('sync_encryption_key') or ''}]: "
+            )
+            or self.config.data.get("sync_encryption_key")
             or ""
         ).strip()
 

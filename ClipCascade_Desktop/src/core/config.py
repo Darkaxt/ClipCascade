@@ -18,6 +18,7 @@ class Config:
             "api_key": "",
             "api_client_id": "",
             "api_client_name": "",
+            "sync_encryption_key": "",
             "maxsize": None,
             "hash_rounds": 664937,
             "salt": "",

@@ -8,11 +8,19 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import com.acme.clipcascade.service.ApiClientService;
+import com.acme.clipcascade.utils.HashingUtility;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,4 +84,83 @@ class ClipCascadeApplicationTests {
 		assertThat(response.getBody()).contains("OK");
 	}
 
+	@Test
+	void statelessPasswordHashMintsManagementApiKeyWithoutSession() throws Exception {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		Map<String, String> payload = Map.of(
+				"username", "admin",
+				"passwordHash", sha3Hex("admin123"),
+				"clientName", "Browser key manager");
+
+		@SuppressWarnings("rawtypes")
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/key-auth/management-key",
+				HttpMethod.POST,
+				new HttpEntity<>(payload, headers),
+				Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat((String) response.getBody().get("apiKey")).startsWith("cck_");
+		assertThat(response.getBody().get("scopes")).isEqualTo(List.of(ApiClientService.SCOPE_MANAGE_KEYS));
+	}
+
+	@Test
+	void syncOnlyApiKeyCannotManageClientKeys() {
+		ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
+				"admin",
+				"Sync only",
+				Set.of(ApiClientService.SCOPE_SYNC));
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(ApiClientService.API_KEY_HEADER, created.apiKey());
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/client-keys",
+				HttpMethod.GET,
+				new HttpEntity<>(headers),
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void managementApiKeyCreatesSyncOnlyDeviceKeyByDefault() {
+		ApiClientService.CreatedApiClient management = apiClientService.createClientKey(
+				"admin",
+				"Manager",
+				Set.of(ApiClientService.SCOPE_MANAGE_KEYS));
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(ApiClientService.API_KEY_HEADER, management.apiKey());
+		headers.setContentType(MediaType.APPLICATION_JSON);
+
+		@SuppressWarnings("rawtypes")
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/client-keys",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of("clientName", "Phone"), headers),
+				Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat((String) response.getBody().get("apiKey")).startsWith("cck_");
+		assertThat(response.getBody().get("scopes")).isEqualTo(List.of(ApiClientService.SCOPE_SYNC));
+	}
+
+	@Test
+	void keysHtmlIsPublicAndSessionless() {
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/keys.html",
+				HttpMethod.GET,
+				HttpEntity.EMPTY,
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).contains("ClipCascade Key Manager");
+		assertThat(response.getBody()).contains("/api/key-auth/management-key");
+	}
+
+	private static String sha3Hex(String input) throws Exception {
+		MessageDigest digest = MessageDigest.getInstance("SHA3-512");
+		return HashingUtility.convertBytesToLowercaseHex(
+				digest.digest(input.getBytes(StandardCharsets.UTF_8)));
+	}
 }

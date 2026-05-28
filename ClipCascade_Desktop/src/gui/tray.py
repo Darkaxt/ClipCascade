@@ -6,12 +6,12 @@ import tkinter as tk
 from tkinter import filedialog
 import webbrowser
 from pystray import Icon, MenuItem as item, Menu
-from PIL import Image, ImageDraw
 
 from core.config import Config
 from gui.info import CustomDialog
 from gui.activity import ActivityWindow
 from utils.activity_log import ActivityLog
+from utils.window_icon import create_clipboard_icon, create_clipboard_icon_with_dot
 from core.constants import *
 
 if PLATFORM != WINDOWS:
@@ -65,9 +65,7 @@ class TaskbarPanel:
         self.is_connected = True
 
         # Create the tray icon
-        self.icon = Icon(
-            "ClipCascade", self.create_clipboard_icon(), menu=self.create_menu()
-        )
+        self.icon = Icon("ClipCascade", create_clipboard_icon(), menu=self.create_menu())
 
         self.icon.title = "ClipCascade"
 
@@ -75,66 +73,6 @@ class TaskbarPanel:
 
     def run(self):
         self.icon.run()
-
-    def _create_clipboard_base_image(self):
-        """Shared clipboard artwork for normal tray icon and file-download badge variant."""
-        width, height = 64, 64
-        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-
-        fill_color = (220, 220, 220)
-        outline_color = (255, 255, 255)
-
-        board_coords = (12, 12, 52, 57)
-        try:
-            draw.rounded_rectangle(
-                board_coords, radius=5, fill=None, outline=outline_color, width=3
-            )
-        except (AttributeError, TypeError):
-            draw.rectangle(board_coords, fill=None, outline=outline_color)
-
-        clip_coords = (22, 7, 42, 17)
-        try:
-            draw.rounded_rectangle(
-                clip_coords, radius=3, fill=fill_color, outline=outline_color, width=3
-            )
-        except (AttributeError, TypeError):
-            draw.rectangle(clip_coords, fill=fill_color, outline=outline_color)
-
-        return image
-
-    def create_clipboard_icon(self):
-        return self._create_clipboard_base_image()
-
-    def create_clipboard_icon_with_dot(self):
-        """Same clipboard as normal state, plus a blue notification dot for pending file download."""
-        image = self._create_clipboard_base_image().copy()
-        draw = ImageDraw.Draw(image)
-        width, height = 64, 64
-
-        dot_radius = 8
-        dot_center_x = width - dot_radius - 5
-        dot_center_y = dot_radius + 5
-        dot_bbox = [
-            dot_center_x - dot_radius,
-            dot_center_y - dot_radius,
-            dot_center_x + dot_radius,
-            dot_center_y + dot_radius,
-        ]
-        draw.ellipse(dot_bbox, fill=(0, 128, 255, 255))
-
-        highlight_radius = dot_radius // 2
-        highlight_center_x = dot_center_x - highlight_radius // 2
-        highlight_center_y = dot_center_y - highlight_radius // 2
-        highlight_bbox = [
-            highlight_center_x - highlight_radius,
-            highlight_center_y - highlight_radius,
-            highlight_center_x + highlight_radius,
-            highlight_center_y + highlight_radius,
-        ]
-        draw.ellipse(highlight_bbox, fill=(255, 255, 255, 180))
-
-        return image
 
     def create_menu(self, item_: tuple = None):
         """Create the menu for the tray icon.
@@ -346,7 +284,7 @@ class TaskbarPanel:
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
-        self.icon.icon = self.create_clipboard_icon_with_dot()
+        self.icon.icon = create_clipboard_icon_with_dot()
         self.file_download_items = (
             "📥 Download File(s)",
             0,
@@ -357,7 +295,7 @@ class TaskbarPanel:
     def disable_files_download(self):
         self.is_file_download_enabled = False
         self.file_download_items = None
-        self.icon.icon = self.create_clipboard_icon()
+        self.icon.icon = create_clipboard_icon()
         self.update_menu()
 
     def _on_download(self, icon, item, files):

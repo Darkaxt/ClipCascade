@@ -26,6 +26,10 @@ public class ApiClient {
     @Column(name = "key_hash", nullable = false, unique = true)
     private String keyHash;
 
+    @NotNull
+    @Column(nullable = false)
+    private String scopes;
+
     @Column(name = "created_at", nullable = false)
     private long createdAt;
 
@@ -37,6 +41,7 @@ public class ApiClient {
 
     public ApiClient() {
         this.enabled = true;
+        this.scopes = "sync,manage_keys";
     }
 
     public ApiClient(
@@ -44,6 +49,7 @@ public class ApiClient {
             String username,
             String clientName,
             String keyHash,
+            String scopes,
             long createdAt,
             long lastUsedAt,
             boolean enabled) {
@@ -52,6 +58,7 @@ public class ApiClient {
         this.username = username;
         this.clientName = clientName;
         this.keyHash = keyHash;
+        this.scopes = scopes;
         this.createdAt = createdAt;
         this.lastUsedAt = lastUsedAt;
         this.enabled = enabled;
@@ -87,6 +94,14 @@ public class ApiClient {
 
     public void setKeyHash(String keyHash) {
         this.keyHash = keyHash;
+    }
+
+    public String getScopes() {
+        return scopes;
+    }
+
+    public void setScopes(String scopes) {
+        this.scopes = scopes;
     }
 
     public long getCreatedAt() {

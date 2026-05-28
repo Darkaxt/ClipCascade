@@ -5,10 +5,13 @@ import java.security.Principal;
 import java.util.Collections;
 import java.awt.image.BufferedImage;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import javax.imageio.ImageIO;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -320,8 +323,27 @@ public class ClipCascadeController {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
     }
 
+    @PostMapping("/api/key-auth/management-key")
+    @Transactional
+    public ResponseEntity<?> createManagementApiKey(@RequestBody Map<String, Object> payload) {
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            ApiClientService.CreatedApiClient created = apiClientService.createManagementKey(
+                    stringPayloadValue(payload, "username"),
+                    stringPayloadValue(payload, "passwordHash"),
+                    stringPayloadValue(payload, "clientName"));
+
+            Map<String, Object> response = apiClientSummary(created.client());
+            response.put("apiKey", created.apiKey());
+            return response;
+        });
+    }
+
     @GetMapping("/api/client-keys")
     public ResponseEntity<?> listApiClientKeys(@AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (!apiClientService.hasScope(userPrincipal, ApiClientService.SCOPE_MANAGE_KEYS)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Forbidden");
+        }
+
         return ResponseEntityUtil.executeWithResponse(() -> apiClientService
                 .listClients(userPrincipal.getUsername())
                 .stream()
@@ -333,12 +355,17 @@ public class ClipCascadeController {
     @Transactional
     public ResponseEntity<?> createApiClientKey(
             @AuthenticationPrincipal UserPrincipal userPrincipal,
-            @RequestBody Map<String, String> payload) {
+            @RequestBody Map<String, Object> payload) {
+
+        if (!apiClientService.hasScope(userPrincipal, ApiClientService.SCOPE_MANAGE_KEYS)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Forbidden");
+        }
 
         return ResponseEntityUtil.executeWithResponse(() -> {
             ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
                     userPrincipal.getUsername(),
-                    payload.get("clientName"));
+                    stringPayloadValue(payload, "clientName"),
+                    payloadScopes(payload.get("scopes")));
 
             Map<String, Object> response = apiClientSummary(created.client());
             response.put("apiKey", created.apiKey());
@@ -351,6 +378,10 @@ public class ClipCascadeController {
     public ResponseEntity<?> revokeApiClientKey(
             @AuthenticationPrincipal UserPrincipal userPrincipal,
             @PathVariable String clientId) {
+
+        if (!apiClientService.hasScope(userPrincipal, ApiClientService.SCOPE_MANAGE_KEYS)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Forbidden");
+        }
 
         return ResponseEntityUtil.buildResponse(
                 apiClientService.revokeClient(userPrincipal.getUsername(), clientId),
@@ -656,7 +687,28 @@ public class ClipCascadeController {
         response.put("createdAt", client.getCreatedAt());
         response.put("lastUsedAt", client.getLastUsedAt());
         response.put("enabled", client.getEnabled());
+        response.put("scopes", ApiClientService.scopesFromString(client.getScopes()).stream().toList());
         return response;
+    }
+
+    private String stringPayloadValue(Map<String, Object> payload, String key) {
+        Object value = payload == null ? null : payload.get(key);
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Set<String> payloadScopes(Object rawScopes) {
+        if (rawScopes instanceof List<?> list) {
+            return ApiClientService.normalizeScopes(
+                    list.stream().map(String::valueOf).toList(),
+                    Set.of(ApiClientService.SCOPE_SYNC));
+        }
+        if (rawScopes instanceof String scopesString && !scopesString.isBlank()) {
+            return ApiClientService.normalizeScopes(
+                    List.of(scopesString.split(",")),
+                    Set.of(ApiClientService.SCOPE_SYNC));
+        }
+        return Set.of(ApiClientService.SCOPE_SYNC);
     }
 
 }

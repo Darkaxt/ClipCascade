@@ -3,6 +3,7 @@ package com.acme.clipcascade.model;
 import java.io.Serial;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Set;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -11,6 +12,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 
 import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.service.BruteForceProtectionService;
+import com.acme.clipcascade.service.ApiClientService;
 
 public class UserPrincipal implements UserDetails {
 
@@ -22,6 +24,7 @@ public class UserPrincipal implements UserDetails {
     private final transient BruteForceProtectionService bruteForceProtectionService;
     private final String clientId;
     private final String clientName;
+    private final Set<String> clientScopes;
 
     public UserPrincipal(
             Users user,
@@ -36,10 +39,23 @@ public class UserPrincipal implements UserDetails {
             String clientId,
             String clientName) {
 
+        this(user, bruteForceProtectionService, clientId, clientName, Collections.emptySet());
+    }
+
+    public UserPrincipal(
+            Users user,
+            BruteForceProtectionService bruteForceProtectionService,
+            String clientId,
+            String clientName,
+            Collection<String> clientScopes) {
+
         this.user = user;
         this.bruteForceProtectionService = bruteForceProtectionService;
         this.clientId = clientId;
         this.clientName = clientName;
+        this.clientScopes = Set.copyOf(clientScopes == null
+                ? Collections.emptySet()
+                : clientScopes);
     }
 
     @Override
@@ -74,6 +90,16 @@ public class UserPrincipal implements UserDetails {
 
     public String getClientName() {
         return clientName;
+    }
+
+    public Set<String> getClientScopes() {
+        if (clientId == null && clientScopes.isEmpty()) {
+            return Collections.emptySet();
+        }
+        if (clientScopes.isEmpty()) {
+            return ApiClientService.scopesFromString(null);
+        }
+        return clientScopes;
     }
 
     public static UserPrincipal fromAuthenticationPrincipal(Object principal) {

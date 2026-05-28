@@ -32,10 +32,14 @@ CREATE TABLE IF NOT EXISTS api_clients (
     username VARCHAR(255) NOT NULL,
     client_name VARCHAR(100) NOT NULL,
     key_hash VARCHAR(64) NOT NULL UNIQUE,
+    scopes VARCHAR(255) NOT NULL DEFAULT 'sync,manage_keys',
     created_at BIGINT NOT NULL,
     last_used_at BIGINT NOT NULL DEFAULT 0,
     enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+ALTER TABLE api_clients ADD COLUMN IF NOT EXISTS scopes VARCHAR(255) NOT NULL DEFAULT 'sync,manage_keys';
+UPDATE api_clients SET scopes = 'sync,manage_keys' WHERE scopes IS NULL OR scopes = '';
 
 CREATE INDEX IF NOT EXISTS api_clients_username_idx ON api_clients (username);
 

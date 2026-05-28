@@ -68,6 +68,8 @@ public class SecurityConfiguration {
 								"/donate",
 								"/health",
 								"/ping",
+								"/keys.html",
+								"/api/key-auth/management-key",
 								"/clipsocket",
 								"/assets/**")
 						.permitAll() // <- Allow access to these URLs without authentication
