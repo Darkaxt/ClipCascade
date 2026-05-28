@@ -59,6 +59,41 @@ class ActivityLogTest(unittest.TestCase):
         self.assertIn("Activity: Local Text Sent via P2S", output)
         self.assertNotIn("super secret", output)
 
+    def test_duplicate_payload_ignored_is_shown_as_suppressed(self):
+        log = ActivityLog(max_rows=3)
+
+        row = log.append(
+            "Remote",
+            "Text",
+            "Ignored",
+            "payload",
+            "P2S",
+            "Duplicate payload",
+        )
+
+        self.assertEqual(row.status, "Suppressed")
+        self.assertEqual(row.detail, "Duplicate payload; no resend")
+        self.assertEqual(log.snapshot()[0].status, "Suppressed")
+
+    def test_local_duplicate_suppression_replaces_detected_row(self):
+        log = ActivityLog(max_rows=3)
+
+        log.append("Local", "Image", "Detected", "Image 960 B", "P2S")
+        row = log.append(
+            "Local",
+            "Image",
+            "Ignored",
+            "Image 960 B",
+            "P2S",
+            "Duplicate payload",
+        )
+
+        rows = log.snapshot()
+        self.assertEqual(len(rows), 1)
+        self.assertIs(rows[0], row)
+        self.assertEqual(rows[0].status, "Suppressed")
+        self.assertEqual(rows[0].detail, "Duplicate payload; no resend")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -27,6 +27,29 @@ class ActivityLog:
         self._rows: List[ActivityEvent] = []
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _is_duplicate_payload(status: str, detail: str) -> bool:
+        return (
+            (status or "").lower() == "ignored"
+            and "duplicate payload" in (detail or "").lower()
+        )
+
+    @staticmethod
+    def _matches_detected_duplicate(
+        existing: ActivityEvent,
+        direction: str,
+        payload_type: str,
+        preview: str,
+        transport: str,
+    ) -> bool:
+        return (
+            existing.direction == direction
+            and existing.payload_type == payload_type
+            and existing.status == "Detected"
+            and existing.preview == preview
+            and existing.transport == transport
+        )
+
     def append(
         self,
         direction: str,
@@ -36,6 +59,10 @@ class ActivityLog:
         transport: str = "",
         detail: str = "",
     ) -> ActivityEvent:
+        if self._is_duplicate_payload(status, detail):
+            status = "Suppressed"
+            detail = "Duplicate payload; no resend"
+
         event = ActivityEvent(
             timestamp=time.time(),
             direction=direction,
@@ -46,7 +73,21 @@ class ActivityLog:
             detail=detail or "",
         )
         with self._lock:
-            self._rows.insert(0, event)
+            if (
+                event.direction == "Local"
+                and event.status == "Suppressed"
+                and self._rows
+                and self._matches_detected_duplicate(
+                    self._rows[0],
+                    event.direction,
+                    event.payload_type,
+                    event.preview,
+                    event.transport,
+                )
+            ):
+                self._rows[0] = event
+            else:
+                self._rows.insert(0, event)
             del self._rows[self.max_rows :]
         suffix = f" via {event.transport}" if event.transport else ""
         logging.info(

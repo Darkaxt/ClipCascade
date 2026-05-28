@@ -41,6 +41,7 @@ Windows client changes in this fork:
 
 - Left-click the tray icon, or choose **Open Activity** from the right-click menu, to inspect recent clipboard events.
 - The activity view shows memory-only rows for local detection, sends, remote receives, local applies, ignored duplicates, and errors.
+- Duplicate echo events are shown as `Suppressed` instead of noisy `Detected`/`Ignored` pairs.
 - The normal log records privacy-safe activity metadata only, such as `Local Image Sent via P2S`, without copied text previews or file contents.
 - Persisted `DATA` files with stale HTTP(S) websocket URLs are repaired before saved-cookie reconnects.
 - Expired saved server sessions are detected before WebSocket reconnect, so the Windows client stops retrying a dead cookie and asks for a fresh login.
