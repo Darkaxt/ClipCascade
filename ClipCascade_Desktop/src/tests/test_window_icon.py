@@ -8,7 +8,11 @@ from pathlib import Path
 SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
-from utils.window_icon import create_clipboard_icon  # noqa: E402
+from PIL import Image  # noqa: E402
+from utils.window_icon import (  # noqa: E402
+    create_clipboard_icon,
+    get_clipboard_window_icon_ico_path,
+)
 
 
 def load_class_from_path(module_name, relative_path, class_name):
@@ -25,6 +29,16 @@ class WindowIconTest(unittest.TestCase):
 
         self.assertEqual(icon.size, (64, 64))
         self.assertEqual(icon.mode, "RGBA")
+
+    def test_window_icon_ico_matches_tray_artwork(self):
+        ico_path = Path(get_clipboard_window_icon_ico_path())
+
+        self.assertTrue(ico_path.is_file())
+        self.assertEqual(ico_path.suffix, ".ico")
+
+        with Image.open(ico_path) as icon:
+            self.assertEqual(icon.mode, "RGBA")
+            self.assertIn(icon.size[0], {16, 32, 48, 64})
 
     def test_visible_tk_windows_apply_shared_tray_icon(self):
         ActivityWindow = load_class_from_path(

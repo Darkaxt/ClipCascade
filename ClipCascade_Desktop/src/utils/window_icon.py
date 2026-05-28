@@ -1,4 +1,11 @@
+import sys
+import tempfile
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageTk
+
+
+_WINDOW_ICON_ICO_PATH = None
 
 
 def create_clipboard_icon():
@@ -60,8 +67,27 @@ def create_clipboard_icon_with_dot():
     return image
 
 
+def get_clipboard_window_icon_ico_path():
+    """Return a temporary Windows ICO file matching the tray artwork."""
+    global _WINDOW_ICON_ICO_PATH
+    if _WINDOW_ICON_ICO_PATH and Path(_WINDOW_ICON_ICO_PATH).is_file():
+        return _WINDOW_ICON_ICO_PATH
+
+    icon_path = Path(tempfile.gettempdir()) / "clipcascade-window-icon.ico"
+    create_clipboard_icon().save(
+        icon_path,
+        format="ICO",
+        sizes=[(64, 64), (48, 48), (32, 32), (16, 16)],
+    )
+    _WINDOW_ICON_ICO_PATH = str(icon_path)
+    return _WINDOW_ICON_ICO_PATH
+
+
 def apply_clipboard_window_icon(window):
     """Apply the shared clipboard artwork to a Tk window/taskbar entry."""
+    if sys.platform == "win32":
+        window.iconbitmap(default=get_clipboard_window_icon_ico_path())
+
     photo = ImageTk.PhotoImage(create_clipboard_icon())
     window.iconphoto(True, photo)
     window._clipcascade_window_icon = photo

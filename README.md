@@ -17,7 +17,7 @@ Download release `3.2.0.5` from the [Darkaxt fork Releases page](https://github.
 | Artifact | SHA-256 |
 | --- | --- |
 | `app-release.apk` | `606D2AAAA84C4BB38AEFC6008E4AA74ADD81078B526289D0EBC4FF8D1B6060F5` |
-| `ClipCascade.exe` | `300417AF2198A3B6C9B5D4005E55F76E4D0770BAD6E2FEA8A9845DA950FB707A` |
+| `ClipCascade.exe` | `D7E13E9DDAF7BAF963A50A7E1F8816EFB8443A11A51A00038456912B6F377904` |
 | `ClipCascade-Server-JRE_21.jar` | `012B25A9BBCAF32EDAD73E56DF0D0657F478BAA95DF04E808D417421F3B3049E` |
 
 Release `3.2.0.5` includes API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
