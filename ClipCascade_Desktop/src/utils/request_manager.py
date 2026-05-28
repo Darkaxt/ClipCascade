@@ -40,7 +40,9 @@ class RequestManager:
         """
         Format the cookie string for headers.
         """
-        return f"JSESSIONID={cookie.get('JSESSIONID', '')};"
+        if not cookie:
+            return ""
+        return "".join(f"{key}={value};" for key, value in cookie.items())
 
     def login(self) -> tuple[bool, str, dict]:
         try:
@@ -69,10 +71,23 @@ class RequestManager:
             response = session.post(
                 self.config.data["server_url"] + LOGIN_URL,
                 data=form_data,
+                allow_redirects=False,
                 verify=self._verify(),
             )
+            location = response.headers.get("Location", "")
+            redirected_to_login_error = (
+                response.status_code in (301, 302, 303, 307, 308)
+                and "/login" in location
+                and "error" in location
+            )
             if (
-                response.status_code == 200
+                (
+                    response.status_code == 200
+                    or (
+                        response.status_code in (301, 302, 303, 307, 308)
+                        and not redirected_to_login_error
+                    )
+                )
                 and "bad credentials" not in response.text.lower()
             ):
                 # login successful

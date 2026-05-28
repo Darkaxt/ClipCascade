@@ -12,7 +12,71 @@ class DummyResponse:
         self.headers = headers or {}
 
 
+class DummySession:
+    def __init__(self, post_response):
+        self.post_response = post_response
+        self.cookies = self
+        self.get_calls = []
+        self.post_calls = []
+
+    def get_dict(self):
+        return {"SESSION": "session-token"}
+
+    def get(self, *args, **kwargs):
+        self.get_calls.append((args, kwargs))
+        return DummyResponse(
+            status_code=200,
+            text='<input type="hidden" name="_csrf" value="csrf-token">',
+        )
+
+    def post(self, *args, **kwargs):
+        self.post_calls.append((args, kwargs))
+        return self.post_response
+
+
 class RequestManagerSessionTests(unittest.TestCase):
+    def test_format_cookie_preserves_spring_session_cookie_name(self):
+        cookie_header = RequestManager.format_cookie({"SESSION": "abc"})
+
+        self.assertEqual("SESSION=abc;", cookie_header)
+
+    def test_format_cookie_keeps_legacy_jsessionid_cookie_name(self):
+        cookie_header = RequestManager.format_cookie({"JSESSIONID": "abc"})
+
+        self.assertEqual("JSESSIONID=abc;", cookie_header)
+
+    def test_login_accepts_success_redirect_without_following_redirect_target(self):
+        config = Config()
+        config.data["server_url"] = "https://clipcascade.example.test"
+        config.data["username"] = "admin"
+        config.data["password"] = "hashed-password"
+        session = DummySession(DummyResponse(status_code=302, headers={"Location": "/"}))
+
+        with patch("utils.request_manager.requests.Session", return_value=session):
+            success, msg, cookie = RequestManager(config).login()
+
+        self.assertTrue(success)
+        self.assertEqual("Login successful", msg)
+        self.assertEqual({"SESSION": "session-token"}, cookie)
+        self.assertFalse(session.post_calls[0][1]["allow_redirects"])
+
+    def test_login_rejects_bad_credentials_redirect(self):
+        config = Config()
+        config.data["server_url"] = "https://clipcascade.example.test"
+        config.data["username"] = "admin"
+        config.data["password"] = "wrong-password"
+        session = DummySession(
+            DummyResponse(status_code=302, headers={"Location": "/login?error"})
+        )
+
+        with patch("utils.request_manager.requests.Session", return_value=session):
+            success, msg, cookie = RequestManager(config).login()
+
+        self.assertFalse(success)
+        self.assertIn("Login failed", msg)
+        self.assertIsNone(cookie)
+        self.assertFalse(session.post_calls[0][1]["allow_redirects"])
+
     def test_validate_session_returns_false_without_following_login_redirect(self):
         config = Config()
         config.data["server_url"] = "https://clipcascade.example.test"
