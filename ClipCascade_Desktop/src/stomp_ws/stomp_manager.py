@@ -77,6 +77,7 @@ class STOMPManager(WSInterface):
                     )
                 return False, msg
 
+            self.disconnected = False
             self.client = Client(
                 self.config.data["websocket_url"],
                 headers={
