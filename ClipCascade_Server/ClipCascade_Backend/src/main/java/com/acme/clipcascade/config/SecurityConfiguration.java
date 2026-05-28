@@ -12,6 +12,7 @@ import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.FacadeUserService;
@@ -24,17 +25,20 @@ public class SecurityConfiguration {
 	private final BCryptPasswordEncoder bCryptPasswordEncoder;
 	private final BruteForceProtectionService bruteForceProtectionService;
 	private final FacadeUserService facadeUserService;
+	private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
 
 	SecurityConfiguration(
 			UserDetailsService userDetailsService,
 			BCryptPasswordEncoder bCryptPasswordEncoder,
 			BruteForceProtectionService bruteForceProtectionService,
-			FacadeUserService facadeUserService) {
+			FacadeUserService facadeUserService,
+			ApiKeyAuthenticationFilter apiKeyAuthenticationFilter) {
 
 		this.userDetailsService = userDetailsService;
 		this.bCryptPasswordEncoder = bCryptPasswordEncoder;
 		this.bruteForceProtectionService = bruteForceProtectionService;
 		this.facadeUserService = facadeUserService;
+		this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
 	}
 
 	// SessionRegistry bean to store session information
@@ -52,6 +56,8 @@ public class SecurityConfiguration {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		return http
+				.csrf(csrf -> csrf
+						.ignoringRequestMatchers("/api/**"))
 				.authorizeHttpRequests((authorize) -> authorize
 						.requestMatchers(
 								"/login",
@@ -62,6 +68,7 @@ public class SecurityConfiguration {
 								"/donate",
 								"/health",
 								"/ping",
+								"/clipsocket",
 								"/assets/**")
 						.permitAll() // <- Allow access to these URLs without authentication
 						.anyRequest().authenticated()) // All other requests require authentication
@@ -80,6 +87,7 @@ public class SecurityConfiguration {
 						.maximumSessions(-1) // Allow unlimited sessions
 						.sessionRegistry(sessionRegistry()) // Use the session registry
 						.expiredSessionStrategy(new CustomExpiredSession())) // Custom expired session strategy
+				.addFilterBefore(apiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
 				.build();
 	}
 

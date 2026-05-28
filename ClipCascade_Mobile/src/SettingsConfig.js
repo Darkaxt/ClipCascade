@@ -2,6 +2,8 @@ export const LOGIN_EXTRA_CONFIG_KEYS = [
   'hash_rounds',
   'salt',
   'save_password',
+  'api_key',
+  'api_client_name',
 ];
 
 export const SETTINGS_CATEGORIES = [

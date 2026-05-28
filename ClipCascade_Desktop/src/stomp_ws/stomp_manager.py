@@ -98,16 +98,13 @@ class STOMPManager(WSInterface):
             self.disconnected = False
             self.client = Client(
                 self.config.data["websocket_url"],
-                headers={
-                    "Cookie": RequestManager.format_cookie(
-                        self.config.data["cookie"]
-                    )
-                },
+                headers=self.request_manager.auth_headers(),
                 on_close_callback=self._on_close,
                 sslopt=websocket_sslopt_for_config(self.config),
             )
             self.client.connect(
                 timeout=WEBSOCKET_TIMEOUT,
+                headers=self.request_manager.stomp_headers(),
                 connectCallback=lambda _: self.client.subscribe(  # receive event
                     destination=SUBSCRIPTION_DESTINATION,
                     callback=self._receive,

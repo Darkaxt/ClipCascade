@@ -45,15 +45,25 @@ class SequenceSessionRequestManager:
     def format_cookie(cookie):
         return f"JSESSIONID={cookie.get('JSESSIONID', '')};"
 
+    def auth_headers(self):
+        return {"Cookie": self.format_cookie(self.config.data.get("cookie") or {})}
+
+    def stomp_headers(self):
+        return {}
+
 
 class FakeClient:
     instances = []
 
     def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.connect_headers = None
         self.disconnect_called = False
         FakeClient.instances.append(self)
 
-    def connect(self, timeout=0, connectCallback=None, errorCallback=None):
+    def connect(self, timeout=0, headers=None, connectCallback=None, errorCallback=None):
+        self.connect_headers = headers
         if connectCallback is not None:
             connectCallback(None)
 
@@ -126,6 +136,35 @@ class STOMPManagerSessionTests(unittest.TestCase):
         self.assertEqual("Websocket connected", second_message)
         self.assertFalse(manager.disconnected)
         self.assertFalse(FakeClient.instances[-1].disconnect_called)
+
+    def test_connect_uses_api_key_headers_for_websocket_and_stomp_connect(self):
+        FakeClient.instances = []
+        config = Config()
+        config.data.update(
+            {
+                "server_url": "https://clipcascade.example.test",
+                "websocket_url": "wss://clipcascade.example.test/clipsocket",
+                "api_key": "cck_secret",
+            }
+        )
+
+        with (
+            patch("stomp_ws.stomp_manager.Client", FakeClient),
+            patch.object(ClipboardManager, "on_copy"),
+        ):
+            manager = STOMPManager(config, is_login_phase=True)
+            success, message = manager.connect()
+
+        self.assertTrue(success)
+        self.assertEqual("Websocket connected", message)
+        self.assertEqual(
+            {"X-ClipCascade-Api-Key": "cck_secret"},
+            FakeClient.instances[-1].kwargs["headers"],
+        )
+        self.assertEqual(
+            {"x-clipcascade-api-key": "cck_secret"},
+            FakeClient.instances[-1].connect_headers,
+        )
 
 
 if __name__ == "__main__":

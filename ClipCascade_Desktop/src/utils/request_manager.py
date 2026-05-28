@@ -35,6 +35,27 @@ class RequestManager:
     def _verify(self):
         return requests_verify_arg(self.config)
 
+    def has_api_key(self) -> bool:
+        return bool((self.config.data.get("api_key") or "").strip())
+
+    def auth_headers(self) -> dict:
+        api_key = (self.config.data.get("api_key") or "").strip()
+        if api_key:
+            return {"X-ClipCascade-Api-Key": api_key}
+
+        cookie = self.config.data.get("cookie")
+        if cookie:
+            return {"Cookie": RequestManager.format_cookie(cookie)}
+
+        return {}
+
+    def stomp_headers(self) -> dict:
+        api_key = (self.config.data.get("api_key") or "").strip()
+        if api_key:
+            return {"x-clipcascade-api-key": api_key}
+
+        return {}
+
     @staticmethod
     def format_cookie(cookie: dict) -> str:
         """
@@ -46,6 +67,15 @@ class RequestManager:
 
     def login(self) -> tuple[bool, str, dict]:
         try:
+            if self.has_api_key():
+                result = self.validate_session_result()
+                if result.valid:
+                    logging.info("API key authentication successful")
+                    return True, "API key accepted", self.config.data.get("cookie")
+                msg = "API key rejected: " + result.summary()
+                logging.error(msg)
+                return False, msg, None
+
             session = requests.Session()
 
             # Fetch the login page to get the CSRF token
@@ -108,9 +138,7 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=self.config.data["server_url"] + MAXSIZE_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                headers=self.auth_headers(),
                 verify=self._verify(),
             )
             if response.status_code == 200:
@@ -128,9 +156,7 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=self.config.data["server_url"] + SERVER_MODE_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                headers=self.auth_headers(),
                 verify=self._verify(),
             )
             if response.status_code == 200:
@@ -146,9 +172,7 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=self.config.data["server_url"] + STUN_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                headers=self.auth_headers(),
                 verify=self._verify(),
             )
             if response.status_code == 200:
@@ -181,9 +205,7 @@ class RequestManager:
             response = RequestManager.post(
                 url=self.config.data["server_url"] + LOGOUT_URL,
                 data={"_csrf": self.config.data["csrf_token"]},
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                headers=self.auth_headers(),
                 verify=self._verify(),
             )
             if response.status_code == 204:
@@ -195,9 +217,7 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=self.config.data["server_url"] + CSRF_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                headers=self.auth_headers(),
                 verify=self._verify(),
             )
 
@@ -210,16 +230,16 @@ class RequestManager:
 
     def validate_session_result(self) -> SessionValidationResult:
         try:
-            cookie = self.config.data.get("cookie")
-            if not cookie:
+            headers = self.auth_headers()
+            if not headers:
                 return SessionValidationResult(
                     valid=False,
-                    reason="missing saved login cookie",
+                    reason="missing saved login credential",
                 )
 
             response = requests.get(
                 self.config.data["server_url"] + VALIDATE_SESSION_URL,
-                headers={"Cookie": RequestManager.format_cookie(cookie)},
+                headers=headers,
                 verify=self._verify(),
                 allow_redirects=False,
                 timeout=5,

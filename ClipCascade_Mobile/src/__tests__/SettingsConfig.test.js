@@ -10,6 +10,8 @@ describe('settings placement', () => {
       'hash_rounds',
       'salt',
       'save_password',
+      'api_key',
+      'api_client_name',
     ]);
 
     expect(LOGIN_EXTRA_CONFIG_KEYS).not.toEqual(

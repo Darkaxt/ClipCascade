@@ -25,6 +25,20 @@ CREATE TABLE IF NOT EXISTS user_info (
     notes TEXT -- Additional notes about the user
 );
 
+-- API-key client/device registrations. The plaintext API key is shown once to
+-- the client and only its SHA-256 hash is stored here.
+CREATE TABLE IF NOT EXISTS api_clients (
+    client_id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(255) NOT NULL,
+    client_name VARCHAR(100) NOT NULL,
+    key_hash VARCHAR(64) NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL,
+    last_used_at BIGINT NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE INDEX IF NOT EXISTS api_clients_username_idx ON api_clients (username);
+
 -- Spring Session JDBC tables. These keep JSESSIONID-backed logins valid across
 -- container restarts when the database directory is mounted persistently.
 CREATE TABLE IF NOT EXISTS SPRING_SESSION (

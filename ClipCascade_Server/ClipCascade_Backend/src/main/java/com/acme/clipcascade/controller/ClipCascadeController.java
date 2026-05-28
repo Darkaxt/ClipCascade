@@ -11,7 +11,7 @@ import javax.imageio.ImageIO;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,11 +25,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import com.acme.clipcascade.config.ClipCascadeProperties;
 import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.constants.ServerConstants;
+import com.acme.clipcascade.model.ApiClient;
 import com.acme.clipcascade.model.ClipboardData;
 import com.acme.clipcascade.model.UserPrincipal;
 import com.acme.clipcascade.model.Users;
+import com.acme.clipcascade.service.ApiClientService;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.CaptchaService;
+import com.acme.clipcascade.service.ClipboardFanoutService;
 import com.acme.clipcascade.service.DonationService;
 import com.acme.clipcascade.service.FacadeUserService;
 import com.acme.clipcascade.service.SessionService;
@@ -52,6 +55,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 
 @Controller
@@ -62,7 +66,8 @@ public class ClipCascadeController {
     private final UserInfoService userInfoService;
     private final SessionService sessionService;
     private final FacadeUserService facadeUserService;
-    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final ApiClientService apiClientService;
+    private final ClipboardFanoutService clipboardFanoutService;
     private final CaptchaService captchaService;
     private final BruteForceProtectionService bruteForceProtectionService;
     private final WebSocketStatsService webSocketStatsService;
@@ -72,7 +77,8 @@ public class ClipCascadeController {
             ClipCascadeProperties clipCascadeProperties,
             FacadeUserService facadeUserService,
             UserService userService,
-            @Nullable SimpMessagingTemplate simpMessagingTemplate,
+            ApiClientService apiClientService,
+            @Nullable ClipboardFanoutService clipboardFanoutService,
             CaptchaService captchaService,
             UserInfoService userInfoService,
             SessionService sessionService,
@@ -83,7 +89,8 @@ public class ClipCascadeController {
         this.clipCascadeProperties = clipCascadeProperties;
         this.facadeUserService = facadeUserService;
         this.userService = userService;
-        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.apiClientService = apiClientService;
+        this.clipboardFanoutService = clipboardFanoutService;
         this.captchaService = captchaService;
         this.userInfoService = userInfoService;
         this.sessionService = sessionService;
@@ -169,9 +176,10 @@ public class ClipCascadeController {
     @MessageMapping("/cliptext")
     public void sendPrivateMessage(
             Principal principal,
+            SimpMessageHeaderAccessor headerAccessor,
             ClipboardData clipboardData) {
 
-        if (clipCascadeProperties.isP2pEnabled()) {
+        if (clipCascadeProperties.isP2pEnabled() || clipboardFanoutService == null) {
             return;
         }
 
@@ -195,9 +203,10 @@ public class ClipCascadeController {
          * messages accordingly.
          * - By default username is the unique identifier for the user.
          */
-        simpMessagingTemplate.convertAndSendToUser(
+        clipboardFanoutService.sendToOtherClientSessions(
                 userPrincipal.getUsername(),
-                "/queue/cliptext",
+                headerAccessor.getSessionId(),
+                userPrincipal.getClientId(),
                 messageToSend);
     }
 
@@ -309,6 +318,44 @@ public class ClipCascadeController {
     @GetMapping("/validate-session")
     public ResponseEntity<?> validateSession() {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
+    }
+
+    @GetMapping("/api/client-keys")
+    public ResponseEntity<?> listApiClientKeys(@AuthenticationPrincipal UserPrincipal userPrincipal) {
+        return ResponseEntityUtil.executeWithResponse(() -> apiClientService
+                .listClients(userPrincipal.getUsername())
+                .stream()
+                .map(this::apiClientSummary)
+                .toList());
+    }
+
+    @PostMapping("/api/client-keys")
+    @Transactional
+    public ResponseEntity<?> createApiClientKey(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestBody Map<String, String> payload) {
+
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
+                    userPrincipal.getUsername(),
+                    payload.get("clientName"));
+
+            Map<String, Object> response = apiClientSummary(created.client());
+            response.put("apiKey", created.apiKey());
+            return response;
+        });
+    }
+
+    @DeleteMapping("/api/client-keys/{clientId}")
+    @Transactional
+    public ResponseEntity<?> revokeApiClientKey(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @PathVariable String clientId) {
+
+        return ResponseEntityUtil.buildResponse(
+                apiClientService.revokeClient(userPrincipal.getUsername(), clientId),
+                "API client revoked",
+                "Invalid API client");
     }
 
     @GetMapping("/admin/server-version")
@@ -599,6 +646,17 @@ public class ClipCascadeController {
                         "User unlocked successfully",
                         "Invalid user or operation failed"),
                 "Forbidden");
+    }
+
+    private Map<String, Object> apiClientSummary(ApiClient client) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("clientId", client.getClientId());
+        response.put("clientName", client.getClientName());
+        response.put("username", client.getUsername());
+        response.put("createdAt", client.getCreatedAt());
+        response.put("lastUsedAt", client.getLastUsedAt());
+        response.put("enabled", client.getEnabled());
+        return response;
     }
 
 }

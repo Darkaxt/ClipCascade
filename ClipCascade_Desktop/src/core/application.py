@@ -123,12 +123,16 @@ class Application:
             fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def authenticate_and_connect(self):
-        # Attempt to connect with existing cookie
-        if self.config.data.get("cookie"):
-            ws_conn_successful, msg = self._get_ws_manager().connect()
-            if ws_conn_successful:
-                self._get_ws_manager().is_login_phase = False
-                return
+        # Attempt to connect with an existing session cookie or API key.
+        if self.config.data.get("cookie") or self.config.data.get("api_key"):
+            try:
+                self._configure_server_connection()
+                ws_conn_successful, msg = self._get_ws_manager().connect()
+                if ws_conn_successful:
+                    self._get_ws_manager().is_login_phase = False
+                    return
+            except Exception as e:
+                logging.warning(f"Saved authentication could not connect: {e}")
 
         # enable login form
         used_saved_credentials = False
@@ -167,20 +171,12 @@ class Application:
                 self.request_manager.login()
             )
             if login_successful:
-                self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
-                self.config.data["server_mode"] = self.request_manager.get_server_mode()
-                if self.config.data["server_mode"] == "P2P":
-                    self.config.data["stun_url"] = self.request_manager.get_stun_url()
-                    self.config.data["maxsize"] = -1
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
-                    )
-                else:
-                    self.config.data["stun_url"] = ""
-                    self.config.data["maxsize"] = self.request_manager.maxsize()
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT
-                    )
+                self.config.data["csrf_token"] = (
+                    ""
+                    if self.request_manager.has_api_key()
+                    else self.request_manager.get_csrf_token()
+                )
+                self._configure_server_connection()
                 ws_conn_successful, msg = self._get_ws_manager().connect()
                 if ws_conn_successful:
                     self._get_ws_manager().is_login_phase = False
@@ -209,6 +205,21 @@ class Application:
             raw_password = None  # Clear the raw password
             if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
                 Echo("-" * 53)
+
+    def _configure_server_connection(self):
+        self.config.data["server_mode"] = self.request_manager.get_server_mode()
+        if self.config.data["server_mode"] == "P2P":
+            self.config.data["stun_url"] = self.request_manager.get_stun_url()
+            self.config.data["maxsize"] = -1
+            self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+                self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
+            )
+        else:
+            self.config.data["stun_url"] = ""
+            self.config.data["maxsize"] = self.request_manager.maxsize()
+            self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+                self.config.data["server_url"], WEBSOCKET_ENDPOINT
+            )
 
     def _get_ws_manager(self):
         if self.config.data["server_mode"] == "P2P":
@@ -258,6 +269,9 @@ class Application:
             self.request_manager.logout()
             self.config.data["hashed_password"] = None
             self.config.data["cookie"] = None
+            self.config.data["api_key"] = ""
+            self.config.data["api_client_id"] = ""
+            self.config.data["api_client_name"] = ""
             self.config.data["maxsize"] = None
             self.config.data["password"] = ""
             self.config.data["csrf_token"] = ""

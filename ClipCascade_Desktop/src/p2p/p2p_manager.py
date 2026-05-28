@@ -203,7 +203,7 @@ class P2PManager(WSInterface):
             self.disconnected = False
             self.ws_client = websocket.WebSocketApp(
                 url=self.config.data["websocket_url"],
-                header={"Cookie": RequestManager.format_cookie(self.config.data["cookie"])},
+                header=self.request_manager.auth_headers(),
                 on_open=self._on_ws_open,
                 on_error=self._on_ws_error,
                 on_message=self._on_ws_message,

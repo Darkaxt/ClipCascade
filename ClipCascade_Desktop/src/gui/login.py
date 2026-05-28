@@ -421,6 +421,34 @@ class LoginForm(tk.Tk):
             "Example: /etc/ssl/corp-root.pem or C:\\\\certs\\\\corp-root.pem",
         )
 
+        # API key auth
+        api_key_label = ttk.Label(self.extra_frame, text="API Key (optional):")
+        api_key_label.grid(row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.api_key_entry = ttk.Entry(
+            self.extra_frame, show="*", width=50, font=("Helvetica", 13)
+        )
+        self.api_key_entry.insert(0, self.config.data.get("api_key") or "")
+        self.api_key_entry.grid(row=8, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [api_key_label, self.api_key_entry],
+            "Optional per-device API key for server authentication.\n\n"
+            "When set, ClipCascade uses this instead of the password/session cookie for server login.\n"
+            "If encryption is enabled, the password field is still used locally for encryption.",
+        )
+
+        api_client_name_label = ttk.Label(self.extra_frame, text="API Client Name:")
+        api_client_name_label.grid(row=9, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.api_client_name_entry = ttk.Entry(
+            self.extra_frame, width=50, font=("Helvetica", 13)
+        )
+        self.api_client_name_entry.insert(0, self.config.data.get("api_client_name") or "")
+        self.api_client_name_entry.grid(row=9, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [api_client_name_label, self.api_client_name_entry],
+            "Local name for this device's API-key registration.\n\n"
+            "This is informational and helps identify/revoke device keys on the server.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -460,6 +488,8 @@ class LoginForm(tk.Tk):
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
             self.ssl_ca_bundle_entry,
+            self.api_key_entry,
+            self.api_client_name_entry,
         )
         for w in extra_entries:
             w.configure(takefocus=bool(self.show_extra))
@@ -497,6 +527,8 @@ class LoginForm(tk.Tk):
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
             self.ssl_ca_bundle_entry,
+            self.api_key_entry,
+            self.api_client_name_entry,
         )
         if self.show_extra:
             focused = self.focus_get()
@@ -630,6 +662,8 @@ class LoginForm(tk.Tk):
                 ).mainloop()
                 return
         self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
+        self.config.data["api_key"] = self.api_key_entry.get().strip()
+        self.config.data["api_client_name"] = self.api_client_name_entry.get().strip()
 
         # call login callback
         if self.on_login_callback:

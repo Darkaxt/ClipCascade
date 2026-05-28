@@ -40,6 +40,10 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import {
+  buildAuthHeaders,
+  hasApiKey,
+} from './AuthConfig';
 import ClipboardActivityLog from './ClipboardActivityLog';
 import { clearClipboardEvents } from './ClipboardEventLog';
 import StartForegroundService from './StartForegroundService';
@@ -135,6 +139,9 @@ export default function App() {
     server_url: 'http://localhost:8080',
     websocket_url: '',
     username: '',
+    api_key: '',
+    api_client_id: '',
+    api_client_name: '',
     hashed_password: '',
     csrf_token: '',
     maxsize: '',
@@ -447,12 +454,23 @@ export default function App() {
     try {
       const response = await fetchTimeout(data_s.server_url + VALIDATE_URL, {
         method: 'GET',
+        headers: buildAuthHeaders(data_s),
       });
 
       if (response.ok && (await response.text()) === 'OK') {
-        return [true, 'Cookie authentication is valid.'];
+        return [
+          true,
+          hasApiKey(data_s)
+            ? 'API key authentication is valid.'
+            : 'Cookie authentication is valid.',
+        ];
       } else {
-        return [false, 'Cookie authentication is not valid.'];
+        return [
+          false,
+          hasApiKey(data_s)
+            ? 'API key authentication is not valid.'
+            : 'Cookie authentication is not valid.',
+        ];
       }
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -462,9 +480,108 @@ export default function App() {
     }
   };
 
+  const configureServerConnection = async data_s => {
+    const authHeaders = buildAuthHeaders(data_s);
+
+    const serverModeResponse = await fetchTimeout(
+      data_s.server_url + SERVER_MODE_URL,
+      {
+        method: 'GET',
+        headers: authHeaders,
+      },
+    );
+    if (!serverModeResponse.ok) {
+      return [
+        false,
+        'Authenticated but unable to get server mode; Status: ' +
+          serverModeResponse.status,
+        data_s,
+      ];
+    }
+    const serverModeResponseText = await serverModeResponse.text();
+    data_s.server_mode = String(JSON.parse(serverModeResponseText).mode);
+
+    if (data_s.server_mode === 'P2P') {
+      data_s.maxsize = '-1';
+
+      const stunUrlResponse = await fetchTimeout(data_s.server_url + STUN_URL, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!stunUrlResponse.ok) {
+        return [
+          false,
+          'Authenticated but unable to get stun url; Status: ' +
+            stunUrlResponse.status,
+          data_s,
+        ];
+      }
+      const stunUrlResponseText = await stunUrlResponse.text();
+      data_s.stun_url = String(JSON.parse(stunUrlResponseText).url);
+
+      data_s.websocket_url = await convertToWebSocketUrl(
+        data_s.server_url,
+        WEBSOCKET_ENDPOINT_P2P,
+      );
+    } else if (data_s.server_mode === 'P2S') {
+      data_s.stun_url = '';
+
+      const maxSizeResponse = await fetchTimeout(data_s.server_url + MAXSIZE_URL, {
+        method: 'GET',
+        headers: authHeaders,
+      });
+      if (!maxSizeResponse.ok) {
+        return [
+          false,
+          'Authenticated but unable to get max size; Status: ' +
+            maxSizeResponse.status,
+          data_s,
+        ];
+      }
+      const maxSizeResponseText = await maxSizeResponse.text();
+      data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
+
+      data_s.websocket_url = await convertToWebSocketUrl(
+        data_s.server_url,
+        WEBSOCKET_ENDPOINT,
+      );
+    }
+
+    return [true, 'Server connection configured.', data_s];
+  };
+
   // Login
   const login = async (data_s, password_s) => {
     try {
+      if (hasApiKey(data_s)) {
+        const validResult = await validateSession(data_s);
+        if (!validResult[0]) {
+          return [false, validResult[1], data_s];
+        }
+
+        data_s.csrf_token = '';
+        const configResult = await configureServerConnection(data_s);
+        data_s = configResult[2];
+        if (!configResult[0]) {
+          return configResult;
+        }
+
+        if (data_s.cipher_enabled === 'true') {
+          const hashResult = await hash(data_s, password);
+          data_s = hashResult[2];
+          if (!hashResult[0]) {
+            return [
+              false,
+              'API key accepted but error generating hash: ' + hashResult[1],
+              data_s,
+            ];
+          }
+          data_s.hashed_password = hashResult[1].toString('base64');
+        }
+
+        return [true, 'API key accepted', data_s];
+      }
+
       // 1. Fetch the login page to get CSRF token and initial cookie
       const loginPageResponse = await fetchTimeout(
         data_s.server_url + LOGIN_URL,
@@ -534,76 +651,14 @@ export default function App() {
         // get CSRF token
         data_s.csrf_token = await getCSRFToken(data_s);
 
-        // get server mode
-        const serverModeResponse = await fetchTimeout(
-          data_s.server_url + SERVER_MODE_URL,
-          {
-            method: 'GET',
-          },
-        );
-        if (!serverModeResponse.ok) {
+        const configResult = await configureServerConnection(data_s);
+        data_s = configResult[2];
+        if (!configResult[0]) {
           return [
             false,
-            'Login Successful but unable to get server mode; Status: ' +
-              serverModeResponse.status,
+            'Login Successful but ' + configResult[1],
             data_s,
           ];
-        }
-        const serverModeResponseText = await serverModeResponse.text();
-        data_s.server_mode = String(JSON.parse(serverModeResponseText).mode);
-
-        if (data_s.server_mode === 'P2P') {
-          data_s.maxsize = '-1';
-
-          // get stun url
-          const stunUrlResponse = await fetchTimeout(
-            data_s.server_url + STUN_URL,
-            {
-              method: 'GET',
-            },
-          );
-          if (!stunUrlResponse.ok) {
-            return [
-              false,
-              'Login Successful but unable to get stun url; Status: ' +
-                stunUrlResponse.status,
-              data_s,
-            ];
-          }
-          const stunUrlResponseText = await stunUrlResponse.text();
-          data_s.stun_url = String(JSON.parse(stunUrlResponseText).url);
-
-          // convert server_url to websocket url
-          data_s.websocket_url = await convertToWebSocketUrl(
-            data_s.server_url,
-            WEBSOCKET_ENDPOINT_P2P,
-          );
-        } else if (data_s.server_mode === 'P2S') {
-          data_s.stun_url = '';
-
-          // get max size
-          const maxSizeResponse = await fetchTimeout(
-            data_s.server_url + MAXSIZE_URL,
-            {
-              method: 'GET',
-            },
-          );
-          if (!maxSizeResponse.ok) {
-            return [
-              false,
-              'Login Successful but unable to get max size; Status: ' +
-                maxSizeResponse.status,
-              data_s,
-            ];
-          }
-          const maxSizeResponseText = await maxSizeResponse.text();
-          data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
-
-          // convert server_url to websocket url
-          data_s.websocket_url = await convertToWebSocketUrl(
-            data_s.server_url,
-            WEBSOCKET_ENDPOINT,
-          );
         }
 
         // Hash the password for encryption
@@ -637,6 +692,7 @@ export default function App() {
     try {
       const response = await fetchTimeout(data_s.server_url + CSRF_URL, {
         method: 'GET',
+        headers: buildAuthHeaders(data_s),
       });
 
       const responseData = await response.json();
@@ -662,24 +718,38 @@ export default function App() {
       const formData = new URLSearchParams();
       formData.append('_csrf', await getDataFromAsyncStorage('csrf_token'));
 
-      const response = await fetchTimeout(data.server_url + LOGOUT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
-      });
-
-      if (response.status == 204) {
-        setWsPageMessage('✅ Logout successful: ' + response.status);
+      if (hasApiKey(data)) {
+        setWsPageMessage('✅ Logout successful');
       } else {
-        setWsPageMessage('❌ Logout failed: ' + response.status);
+        const response = await fetchTimeout(data.server_url + LOGOUT_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
+        });
+
+        if (response.status == 204) {
+          setWsPageMessage('✅ Logout successful: ' + response.status);
+        } else {
+          setWsPageMessage('❌ Logout failed: ' + response.status);
+        }
       }
 
       await setDataInAsyncStorage('csrf_token', '');
+      await setDataInAsyncStorage('api_key', '');
+      await setDataInAsyncStorage('api_client_id', '');
+      await setDataInAsyncStorage('api_client_name', '');
       setEnableWSPage(false);
       setEnableLoginPage(true);
       setLoginStatusMessage('');
+      setData(previous => ({
+        ...previous,
+        api_key: '',
+        api_client_id: '',
+        api_client_name: '',
+        csrf_token: '',
+      }));
 
       // clear cookies if any
       NativeBridgeModule.clearCookies();
@@ -1023,6 +1093,31 @@ export default function App() {
               onValueChange={newValue =>
                 handleInputChange('save_password', String(newValue))
               }
+            />
+          </View>
+        );
+      case 'api_key':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>API Key (optional):</Text>
+            <TextInput
+              style={styles.input}
+              value={data.api_key}
+              onChangeText={text => handleInputChange('api_key', text.trim())}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+          </View>
+        );
+      case 'api_client_name':
+        return (
+          <View style={styles.row} key={key}>
+            <Text style={styles.label}>API Client Name:</Text>
+            <TextInput
+              style={styles.input}
+              value={data.api_client_name}
+              onChangeText={text => handleInputChange('api_client_name', text)}
+              autoCapitalize="none"
             />
           </View>
         );

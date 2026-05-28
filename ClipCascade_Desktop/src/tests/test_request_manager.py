@@ -110,6 +110,40 @@ class RequestManagerSessionTests(unittest.TestCase):
         self.assertEqual("https://clipcascade.example.test/login", result.location)
         self.assertIn("HTTP 302", result.summary())
 
+    def test_auth_headers_prefers_api_key_over_cookie(self):
+        config = Config()
+        config.data["api_key"] = "cck_secret"
+        config.data["cookie"] = {"JSESSIONID": "abc"}
+
+        headers = RequestManager(config).auth_headers()
+
+        self.assertEqual({"X-ClipCascade-Api-Key": "cck_secret"}, headers)
+
+    def test_stomp_headers_include_api_key(self):
+        config = Config()
+        config.data["api_key"] = "cck_secret"
+
+        headers = RequestManager(config).stomp_headers()
+
+        self.assertEqual({"x-clipcascade-api-key": "cck_secret"}, headers)
+
+    def test_validate_session_uses_api_key_without_cookie(self):
+        config = Config()
+        config.data["server_url"] = "https://clipcascade.example.test"
+        config.data["api_key"] = "cck_secret"
+
+        with patch(
+            "utils.request_manager.requests.get",
+            return_value=DummyResponse(status_code=200),
+        ) as mock_get:
+            result = RequestManager(config).validate_session_result()
+
+        self.assertTrue(result.valid)
+        self.assertEqual(
+            {"X-ClipCascade-Api-Key": "cck_secret"},
+            mock_get.call_args.kwargs["headers"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

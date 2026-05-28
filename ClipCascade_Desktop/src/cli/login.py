@@ -205,6 +205,20 @@ class LoginForm:
             self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
             break
 
+        self.config.data["api_key"] = (
+            input("api key (optional; hidden input unavailable in CLI) [saved/blank]: ")
+            or self.config.data.get("api_key")
+            or ""
+        ).strip()
+
+        self.config.data["api_client_name"] = (
+            input(
+                f"api client name [{self.config.data.get('api_client_name') or ''}]: "
+            )
+            or self.config.data.get("api_client_name")
+            or ""
+        ).strip()
+
         CustomDialog("Logging in...").mainloop()
 
     def on_quit(self):

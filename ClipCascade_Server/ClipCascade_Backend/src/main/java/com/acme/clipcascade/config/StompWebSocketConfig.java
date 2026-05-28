@@ -4,6 +4,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -21,9 +22,14 @@ import com.acme.clipcascade.constants.ServerConstants;
 public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final ClipCascadeProperties clipCascadeProperties;
+    private final ApiKeyStompAuthenticationInterceptor apiKeyStompAuthenticationInterceptor;
 
-    public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties) {
+    public StompWebSocketConfig(
+            ClipCascadeProperties clipCascadeProperties,
+            ApiKeyStompAuthenticationInterceptor apiKeyStompAuthenticationInterceptor) {
+
         this.clipCascadeProperties = clipCascadeProperties;
+        this.apiKeyStompAuthenticationInterceptor = apiKeyStompAuthenticationInterceptor;
     }
 
     @Override
@@ -72,6 +78,11 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Clients will connect to this endpoint for WebSocket communication.
         registry.addEndpoint("/clipsocket")
                 .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());
+    }
+
+    @Override
+    public void configureClientInboundChannel(@NonNull ChannelRegistration registration) {
+        registration.interceptors(apiKeyStompAuthenticationInterceptor);
     }
 
     // Scheduler for WebSocket heartbeats

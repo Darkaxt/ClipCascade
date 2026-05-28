@@ -48,6 +48,10 @@ import {
   getClipboardCaptureUnavailableMessage,
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
+import {
+  buildStompConnectHeaders,
+  buildWebSocketOptions,
+} from './AuthConfig';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -117,6 +121,7 @@ module.exports = async (inputData = null) => {
           'enable_shizuku_clipboard_backend',
           'enable_websocket_status_notification',
           'max_clipboard_size_local_limit_bytes',
+          'api_key',
         ]);
 
         const {
@@ -130,6 +135,7 @@ module.exports = async (inputData = null) => {
           enable_shizuku_clipboard_backend,
           enable_websocket_status_notification,
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
+          api_key,
         } = initialSettings;
 
         const maxsize = Number(maxsizeStr);
@@ -144,6 +150,7 @@ module.exports = async (inputData = null) => {
             maxsize,
           ),
         };
+        const authSettings = { api_key };
 
         // encrption
         const encrypt = async plainText => {
@@ -811,6 +818,7 @@ module.exports = async (inputData = null) => {
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
+            connectHeaders: buildStompConnectHeaders(authSettings),
             reconnectDelay: RECONNECT_WS_TIMER,
             connectionTimeout: 5000,
             heartbeatIncoming: HEARTBEAT_INTERVAL,
@@ -1278,7 +1286,10 @@ module.exports = async (inputData = null) => {
 
           const initializeWebSocketSignalingClient = async () => {
             if (wsSignalingClient == null) {
-              wsSignalingClient = new WebSocket(websocket_url);
+              const websocketOptions = buildWebSocketOptions(authSettings);
+              wsSignalingClient = websocketOptions
+                ? new WebSocket(websocket_url, [], websocketOptions)
+                : new WebSocket(websocket_url);
 
               wsSignalingClient.onopen = async () => {
                 await cleanupPeerConnections();
