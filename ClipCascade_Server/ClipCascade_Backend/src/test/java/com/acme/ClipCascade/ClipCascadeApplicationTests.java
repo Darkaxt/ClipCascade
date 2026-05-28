@@ -10,6 +10,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 
@@ -157,6 +158,25 @@ class ClipCascadeApplicationTests {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).contains("ClipCascade Key Manager");
 		assertThat(response.getBody()).contains("/api/key-auth/management-key");
+	}
+
+	@Test
+	void webUiExposesApiKeyManagerEntryPoints() throws Exception {
+		String indexHtml = new ClassPathResource("static/index.html")
+				.getContentAsString(StandardCharsets.UTF_8);
+
+		assertThat(indexHtml).contains("id=\"api-keys-link\"");
+		assertThat(indexHtml).contains("id=\"open-api-keys-link\"");
+		assertThat(indexHtml).contains("href=\"/keys.html\"");
+
+		ResponseEntity<String> loginResponse = restTemplate.exchange(
+				"/login",
+				HttpMethod.GET,
+				HttpEntity.EMPTY,
+				String.class);
+
+		assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(loginResponse.getBody()).contains("href=\"/keys.html\"");
 	}
 
 	@Test
