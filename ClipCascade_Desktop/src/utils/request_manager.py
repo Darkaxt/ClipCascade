@@ -1,10 +1,31 @@
 import json
 import logging
 import requests
+from dataclasses import dataclass
+from typing import Optional
 from core.constants import *
 from core.config import Config
 from bs4 import BeautifulSoup
 from utils.ssl_helper import requests_verify_arg
+
+
+@dataclass
+class SessionValidationResult:
+    valid: Optional[bool]
+    reason: str
+    http_status: Optional[int] = None
+    location: str = ""
+    error: str = ""
+
+    def summary(self) -> str:
+        parts = [self.reason]
+        if self.http_status is not None:
+            parts.append(f"HTTP {self.http_status}")
+        if self.location:
+            parts.append(f"Location: {self.location}")
+        if self.error:
+            parts.append(self.error)
+        return "; ".join(parts)
 
 
 class RequestManager:
@@ -172,11 +193,14 @@ class RequestManager:
             logging.error(f"Error fetching CSRF token: {e}")
             return ""
 
-    def validate_session(self):
+    def validate_session_result(self) -> SessionValidationResult:
         try:
             cookie = self.config.data.get("cookie")
             if not cookie:
-                return False
+                return SessionValidationResult(
+                    valid=False,
+                    reason="missing saved login cookie",
+                )
 
             response = requests.get(
                 self.config.data["server_url"] + VALIDATE_SESSION_URL,
@@ -186,16 +210,36 @@ class RequestManager:
                 timeout=5,
             )
             if response.status_code == 200:
-                return True
+                return SessionValidationResult(valid=True, reason="saved login active")
             if response.status_code in {301, 302, 303, 307, 308, 401, 403}:
-                return False
+                if response.status_code in {401, 403}:
+                    reason = "server rejected saved login"
+                else:
+                    reason = "server redirected saved login"
+                return SessionValidationResult(
+                    valid=False,
+                    reason=reason,
+                    http_status=response.status_code,
+                    location=response.headers.get("Location", ""),
+                )
             logging.warning(
                 f"Unable to validate session: HTTP {response.status_code}"
             )
-            return None
+            return SessionValidationResult(
+                valid=None,
+                reason="unexpected session validation response",
+                http_status=response.status_code,
+            )
         except Exception as e:
             logging.warning(f"Unable to validate session: {e}")
-            return None
+            return SessionValidationResult(
+                valid=None,
+                reason="session validation request failed",
+                error=f"{type(e).__name__}: {e}",
+            )
+
+    def validate_session(self):
+        return self.validate_session_result().valid
 
     @staticmethod
     def get(url: str, headers: dict = None, verify=True) -> requests.Response:

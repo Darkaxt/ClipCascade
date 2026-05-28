@@ -41,6 +41,7 @@ class P2PManager(WSInterface):
         )
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
+        self.request_manager = RequestManager(self.config)
         self.sys_tray: TaskbarPanel = None
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
@@ -148,6 +149,39 @@ class P2PManager(WSInterface):
         Returns the total timeout value in milliseconds."""
         return (RECONNECT_WS_TIMER * 1000) + WEBSOCKET_TIMEOUT
 
+    def _validate_saved_session_before_connect(self) -> tuple[bool, str]:
+        session_result = self.request_manager.validate_session_result()
+        if session_result.valid is False:
+            msg = "Saved login no longer valid; please log in again"
+            logging.error(
+                "Saved login rejected before P2P signaling connect: %s",
+                session_result.summary(),
+            )
+            self.disconnected = True
+            self.is_auto_reconnecting = False
+            self.is_connected = False
+            self.config.data["cookie"] = None
+            self.config.data["csrf_token"] = ""
+            self.config.save()
+            self.clipboard_manager.stop()
+            self.is_clipboard_monitoring_on = False
+            self.loop.call_soon_threadsafe(self._cancel_dc_heartbeat)
+            if not self.is_login_phase:
+                self.notification_manager.notify(
+                    title=f"{APP_NAME}: Login Required",
+                    message="Saved login no longer valid. Open ClipCascade and sign in again.",
+                )
+            return False, msg
+
+        if session_result.valid is None:
+            logging.warning(
+                "Could not confirm saved login before P2P signaling connect; "
+                "trying websocket anyway: %s",
+                session_result.summary(),
+            )
+
+        return True, ""
+
     def connect(self) -> tuple[bool, str]:
         """
         Connects to the P2P websocket signaling server.
@@ -162,6 +196,11 @@ class P2PManager(WSInterface):
                     pass
                 self.ws_client = None
 
+            session_ok, msg = self._validate_saved_session_before_connect()
+            if not session_ok:
+                return False, msg
+
+            self.disconnected = False
             self.ws_client = websocket.WebSocketApp(
                 url=self.config.data["websocket_url"],
                 header={"Cookie": RequestManager.format_cookie(self.config.data["cookie"])},
