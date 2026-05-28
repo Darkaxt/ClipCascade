@@ -5,6 +5,7 @@ import gc
 import time
 
 from utils.window_manager import center_window
+from utils.window_icon import apply_clipboard_window_icon
 from core.constants import *
 
 
@@ -37,6 +38,10 @@ class CustomDialog(tk.Tk):
     def _configure_window(self):
         """Configure the dialog window properties."""
         self.title("ClipCascade")
+        try:
+            apply_clipboard_window_icon(self)
+        except Exception:
+            pass
         self.geometry(
             "600x300+{}+{}".format(
                 (self.winfo_screenwidth() - 600) // 2,

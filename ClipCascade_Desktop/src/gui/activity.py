@@ -4,6 +4,7 @@ from tkinter import ttk
 
 from utils.activity_log import ActivityLog
 from utils.window_manager import center_window
+from utils.window_icon import apply_clipboard_window_icon
 
 
 class ActivityWindow(tk.Tk):
@@ -12,6 +13,10 @@ class ActivityWindow(tk.Tk):
         self.activity_log = activity_log
 
         self.title("ClipCascade Activity")
+        try:
+            apply_clipboard_window_icon(self)
+        except Exception:
+            pass
         self.geometry("980x460")
         self.minsize(760, 360)
         center_window(self)

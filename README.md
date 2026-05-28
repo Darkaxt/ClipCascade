@@ -4,11 +4,23 @@
 
 **No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
 
-## Darkaxt Android Fork
+## Darkaxt Fork
 
-This fork currently focuses on the Android APK. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
+This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
 
-Version `3.2.0.2` means upstream ClipCascade `3.2.0` plus fork revision `.2`.
+Version `3.2.0.5` means upstream ClipCascade `3.2.0` plus Darkaxt fork revision `.5`.
+
+### Latest Darkaxt Release
+
+Download release `3.2.0.5` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.5).
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `app-release.apk` | `606D2AAAA84C4BB38AEFC6008E4AA74ADD81078B526289D0EBC4FF8D1B6060F5` |
+| `ClipCascade.exe` | `300417AF2198A3B6C9B5D4005E55F76E4D0770BAD6E2FEA8A9845DA950FB707A` |
+| `ClipCascade-Server-JRE_21.jar` | `012B25A9BBCAF32EDAD73E56DF0D0657F478BAA95DF04E808D417421F3B3049E` |
+
+Release `3.2.0.5` includes API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
 
 Android resilience changes in this fork:
 
@@ -21,6 +33,7 @@ Android resilience changes in this fork:
 - Runtime settings are polled by the foreground service, and WorkManager periodic checks can be toggled from the connected screen.
 - The Android app includes an optional strict Shizuku clipboard backend for automatic outbound capture. If enabled and Shizuku is unavailable, Android outbound capture pauses without stopping inbound remote clipboard receiving.
 - Echo suppression prevents Android from immediately re-sending clipboard content that it just received from another ClipCascade client.
+- First login enrolls the Android device with a per-device sync API key and shared E2E sync encryption key. Normal sync no longer depends on an HTTP session.
 - Windows desktop image payloads are normalized to PNG before sending, avoiding Android decode failures from raw Windows `DIB` clipboard images.
 
 Large payload note: the server can be configured for very large messages, but Android still has to hold encrypted/base64 payloads in app memory. Keep the local clipboard-size limit aligned with what the phone can actually handle.
@@ -45,6 +58,8 @@ Windows client changes in this fork:
 - The normal log records privacy-safe activity metadata only, such as `Local Image Sent via P2S`, without copied text previews or file contents.
 - Persisted `DATA` files with stale HTTP(S) websocket URLs are repaired before saved-cookie reconnects.
 - Expired saved server sessions are detected before WebSocket reconnect, so the Windows client stops retrying a dead cookie and asks for a fresh login.
+- Rejected saved API keys are cleared automatically, allowing the next username/password login to mint a replacement sync API key.
+- First login enrolls the Windows device with a per-device sync API key and shared E2E sync encryption key. Normal sync no longer depends on an HTTP session.
 - Windows desktop image payloads are normalized to PNG before sending, avoiding Android decode failures from raw Windows `DIB` clipboard images.
 
 <div align="center">
