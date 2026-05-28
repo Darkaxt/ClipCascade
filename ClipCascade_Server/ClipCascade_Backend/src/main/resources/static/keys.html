@@ -750,7 +750,12 @@
       }
 
       controls.mintManagementKey.addEventListener("click", () =>
-        mintManagementKey().catch((error) => setStatus("error", error.message))
+        mintManagementKey().catch((error) => {
+          const existingKeyNote = state.managementKey
+            ? " Existing management key remains active."
+            : "";
+          setStatus("error", `${error.message}${existingKeyNote}`);
+        })
       );
       controls.useManagementKey.addEventListener("click", () =>
         useExistingManagementKey().catch((error) => {

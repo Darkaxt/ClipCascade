@@ -35,17 +35,18 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
 
-        Authentication existingAuthentication = SecurityContextHolder.getContext().getAuthentication();
-        if (existingAuthentication == null || !existingAuthentication.isAuthenticated()) {
-            String apiKey = apiClientService.extractApiKey(
-                    request.getHeader(ApiClientService.API_KEY_HEADER),
-                    request.getHeader("Authorization"));
+        String apiKey = apiClientService.extractApiKey(
+                request.getHeader(ApiClientService.API_KEY_HEADER),
+                request.getHeader("Authorization"));
 
+        if (apiKey != null && !apiKey.isBlank()) {
             apiClientService.authenticate(apiKey)
                     .map(authenticated -> authenticationFactory.createAuthentication(
                             authenticated.user(),
                             authenticated.client()))
-                    .ifPresent(authentication -> SecurityContextHolder.getContext().setAuthentication(authentication));
+                    .ifPresentOrElse(
+                            authentication -> SecurityContextHolder.getContext().setAuthentication(authentication),
+                            SecurityContextHolder::clearContext);
         }
 
         filterChain.doFilter(request, response);
