@@ -252,6 +252,37 @@ def get_program_files_directory():
             return parent_dir
 
 
+def _version_segments(version):
+    segments = []
+    for segment in str(version or "").split("."):
+        try:
+            segments.append(int(segment))
+        except ValueError:
+            segments.append(0)
+    return segments
+
+
+def compare_versions(left_version, right_version):
+    left = _version_segments(left_version)
+    right = _version_segments(right_version)
+    max_length = max(len(left), len(right))
+
+    for index in range(max_length):
+        left_segment = left[index] if index < len(left) else 0
+        right_segment = right[index] if index < len(right) else 0
+
+        if left_segment > right_segment:
+            return 1
+        if left_segment < right_segment:
+            return -1
+
+    return 0
+
+
+def is_version_greater(candidate_version, current_version):
+    return compare_versions(candidate_version, current_version) > 0
+
+
 def get_downloads_folder():
     """
     Get the path to the user's Downloads folder in a cross-platform manner.

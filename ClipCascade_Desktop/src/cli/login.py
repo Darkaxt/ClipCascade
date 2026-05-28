@@ -5,7 +5,6 @@ import re
 from core.config import Config
 from cli.info import CustomDialog
 from core.constants import *
-from utils.setup_bundle import apply_setup_bundle_to_config
 
 
 class LoginForm:
@@ -46,17 +45,6 @@ class LoginForm:
             return False
 
     def mainloop(self):
-        setup_bundle = input("setup bundle JSON (optional, paste one line) []: ").strip()
-        if setup_bundle:
-            try:
-                apply_setup_bundle_to_config(self.config, setup_bundle)
-                CustomDialog("Setup bundle imported.").mainloop()
-            except Exception as exc:
-                CustomDialog(
-                    f"Invalid setup bundle\n{exc}",
-                    msg_type="error",
-                ).mainloop()
-
         # save data to config
         self.config.data["username"] = (
             input(f"username [{self.config.data['username']}]: ")

@@ -242,12 +242,14 @@
         justify-content: flex-end;
       }
 
-      .fallback-access summary {
+      .fallback-access summary,
+      .manual-setup summary {
         cursor: pointer;
         font-weight: 700;
       }
 
-      .fallback-access .stack {
+      .fallback-access .stack,
+      .manual-setup .stack {
         margin-top: 14px;
       }
 
@@ -328,7 +330,7 @@
           <img src="/assets/images/logo.png" alt="" />
           <div>
             <h1>ClipCascade Key Manager</h1>
-            <div class="muted">Device setup and API-key control plane</div>
+            <div class="muted">API-key registry and recovery tools</div>
           </div>
         </div>
         <a href="/" class="muted">Back to app</a>
@@ -357,8 +359,20 @@
           </div>
 
           <div class="panel">
-            <h2>Create Device Key</h2>
+            <h2>Registered API Keys</h2>
+            <div id="keyTableHost" class="empty">
+              Sign in through the main app or paste an existing management key to list registered keys.
+            </div>
+          </div>
+
+          <details class="panel manual-setup">
+            <summary>Advanced manual setup</summary>
             <div class="stack">
+              <p class="muted">
+                Android and Windows normally enroll themselves after a one-time
+                credential login. Use this only for scripts, unsupported clients,
+                or emergency key recovery.
+              </p>
               <div class="two-col">
                 <div>
                   <label for="deviceName">Client name</label>
@@ -373,44 +387,23 @@
                   </select>
                 </div>
               </div>
-              <div>
-                <label for="syncEncryptionKey">Sync encryption key</label>
-                <input
-                  id="syncEncryptionKey"
-                  placeholder="Generated in browser, never sent to the server"
-                />
-              </div>
               <div class="button-row">
-                <button id="generateSyncKey" class="secondary" type="button">
-                  Generate Sync Key
-                </button>
                 <button id="createDeviceKey" class="primary" type="button">
-                  Create Device Key
+                  Create Manual Key
                 </button>
               </div>
               <p class="muted">
-                The device API key is stored by the server as a hash. The sync
-                encryption key is only placed into the setup bundle shown here.
+                The API key is shown once and stored by the server only as a hash.
               </p>
+              <div id="apiKeyOutput" class="output">
+                <h2>Manual API Key</h2>
+                <div class="button-row">
+                  <button id="copyManualApiKey" class="secondary" type="button">Copy API Key</button>
+                </div>
+                <textarea id="manualApiKey" readonly></textarea>
+              </div>
             </div>
-          </div>
-
-          <div id="bundleOutput" class="panel output">
-            <h2>Setup Bundle</h2>
-            <div class="button-row">
-              <button id="copyBundle" class="secondary" type="button">Copy Bundle</button>
-              <button id="copyApiKey" class="secondary" type="button">Copy API Key</button>
-              <button id="copySyncKey" class="secondary" type="button">Copy Sync Key</button>
-            </div>
-            <textarea id="setupBundle" readonly></textarea>
-          </div>
-
-          <div class="panel">
-            <h2>Registered API Keys</h2>
-            <div id="keyTableHost" class="empty">
-              Create a device key or use an existing management key to list registered keys.
-            </div>
-          </div>
+          </details>
 
           <details class="panel fallback-access">
             <summary>Use an existing management key</summary>
@@ -442,7 +435,6 @@
         managementKey: "",
         username: "",
         latestDeviceApiKey: "",
-        latestSyncKey: "",
       };
 
       const byId = (id) => document.getElementById(id);
@@ -456,14 +448,10 @@
         refreshKeys: byId("refreshKeys"),
         deviceName: byId("deviceName"),
         scopeSelect: byId("scopeSelect"),
-        syncEncryptionKey: byId("syncEncryptionKey"),
-        generateSyncKey: byId("generateSyncKey"),
         createDeviceKey: byId("createDeviceKey"),
-        bundleOutput: byId("bundleOutput"),
-        setupBundle: byId("setupBundle"),
-        copyBundle: byId("copyBundle"),
-        copyApiKey: byId("copyApiKey"),
-        copySyncKey: byId("copySyncKey"),
+        apiKeyOutput: byId("apiKeyOutput"),
+        manualApiKey: byId("manualApiKey"),
+        copyManualApiKey: byId("copyManualApiKey"),
         keyTableHost: byId("keyTableHost"),
       };
 
@@ -496,7 +484,7 @@
         controls.forgetManagementKey.disabled = true;
         controls.keyTableHost.className = "empty";
         controls.keyTableHost.textContent =
-          "Create a device key or use an existing management key to list registered keys.";
+          "Sign in through the main app or paste an existing management key to list registered keys.";
         localStorage.removeItem(STORAGE_KEY);
       }
 
@@ -534,20 +522,6 @@
           .split(",")
           .map((scope) => scope.trim())
           .filter(Boolean);
-      }
-
-      function generateBase64Url(bytes) {
-        let binary = "";
-        bytes.forEach((byte) => {
-          binary += String.fromCharCode(byte);
-        });
-        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-      }
-
-      function generateSyncEncryptionKey() {
-        const bytes = new Uint8Array(32);
-        crypto.getRandomValues(bytes);
-        return `ccsk_${generateBase64Url(bytes)}`;
       }
 
       async function mintSessionManagementKey() {
@@ -695,15 +669,6 @@
           setStatus("error", "Client name is required.");
           return;
         }
-        let syncKey = controls.syncEncryptionKey.value.trim();
-        if (!syncKey) {
-          syncKey = generateSyncEncryptionKey();
-          controls.syncEncryptionKey.value = syncKey;
-        }
-        if (!/^ccsk_[A-Za-z0-9_-]{43}$/.test(syncKey)) {
-          setStatus("error", "Sync encryption key must be a ccsk_ 256-bit key.");
-          return;
-        }
 
         const scopes = normalizeScopes(controls.scopeSelect.value);
         setStatus("warn", "Creating device key...");
@@ -713,27 +678,10 @@
         });
 
         state.latestDeviceApiKey = created.apiKey;
-        state.latestSyncKey = syncKey;
-        renderSetupBundle(created, syncKey);
-        setStatus("ok", "Device key created. Copy the setup bundle now; the API key is shown once.");
+        controls.manualApiKey.value = created.apiKey;
+        controls.apiKeyOutput.classList.add("visible");
+        setStatus("ok", "Manual API key created. Copy it now; it is shown once.");
         await loadKeys();
-      }
-
-      function renderSetupBundle(created, syncKey) {
-        const bundle = {
-          type: "clipcascade-setup-v1",
-          serverUrl: window.location.origin,
-          username: created.username || state.username,
-          apiKey: created.apiKey,
-          clientId: created.clientId,
-          clientName: created.clientName,
-          scopes: created.scopes || normalizeScopes(controls.scopeSelect.value),
-          cipherEnabled: true,
-          encryptionMode: "sync_key",
-          syncEncryptionKey: syncKey,
-        };
-        controls.setupBundle.value = JSON.stringify(bundle, null, 2);
-        controls.bundleOutput.classList.add("visible");
       }
 
       async function copyText(value, label) {
@@ -758,21 +706,11 @@
       controls.refreshKeys.addEventListener("click", () =>
         loadKeys().catch((error) => setStatus("error", error.message))
       );
-      controls.generateSyncKey.addEventListener("click", () => {
-        controls.syncEncryptionKey.value = generateSyncEncryptionKey();
-        setStatus("ok", "Generated a new sync encryption key in this browser.");
-      });
       controls.createDeviceKey.addEventListener("click", () =>
         createDeviceKey().catch((error) => setStatus("error", error.message))
       );
-      controls.copyBundle.addEventListener("click", () =>
-        copyText(controls.setupBundle.value, "Setup bundle")
-      );
-      controls.copyApiKey.addEventListener("click", () =>
+      controls.copyManualApiKey.addEventListener("click", () =>
         copyText(state.latestDeviceApiKey, "API key")
-      );
-      controls.copySyncKey.addEventListener("click", () =>
-        copyText(state.latestSyncKey, "Sync encryption key")
       );
 
       const rememberedKey = localStorage.getItem(STORAGE_KEY);
@@ -787,6 +725,12 @@
         });
       } else {
         resetAuthorized();
+        mintSessionManagementKey().catch((error) => {
+          setStatus(
+            "warn",
+            `Sign in to ClipCascade first, or paste an existing management key. ${error.message}`
+          );
+        });
       }
     </script>
   </body>

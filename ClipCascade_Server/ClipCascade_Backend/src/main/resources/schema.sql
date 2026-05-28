@@ -43,6 +43,15 @@ UPDATE api_clients SET scopes = 'sync,manage_keys' WHERE scopes IS NULL OR scope
 
 CREATE INDEX IF NOT EXISTS api_clients_username_idx ON api_clients (username);
 
+-- Per-user wrapped sync encryption key escrow. The server stores only the
+-- client-side password-wrapped envelope, never the plaintext sync key.
+CREATE TABLE IF NOT EXISTS sync_key_escrows (
+    username VARCHAR(255) PRIMARY KEY,
+    wrapped_key TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+);
+
 -- Spring Session JDBC tables. These keep JSESSIONID-backed logins valid across
 -- container restarts when the database directory is mounted persistently.
 CREATE TABLE IF NOT EXISTS SPRING_SESSION (

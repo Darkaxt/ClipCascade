@@ -35,6 +35,7 @@ import com.acme.clipcascade.model.Users;
 import com.acme.clipcascade.service.ApiClientService;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.CaptchaService;
+import com.acme.clipcascade.service.ClientEnrollmentService;
 import com.acme.clipcascade.service.ClipboardFanoutService;
 import com.acme.clipcascade.service.DonationService;
 import com.acme.clipcascade.service.FacadeUserService;
@@ -70,6 +71,7 @@ public class ClipCascadeController {
     private final SessionService sessionService;
     private final FacadeUserService facadeUserService;
     private final ApiClientService apiClientService;
+    private final ClientEnrollmentService clientEnrollmentService;
     private final ClipboardFanoutService clipboardFanoutService;
     private final CaptchaService captchaService;
     private final BruteForceProtectionService bruteForceProtectionService;
@@ -81,6 +83,7 @@ public class ClipCascadeController {
             FacadeUserService facadeUserService,
             UserService userService,
             ApiClientService apiClientService,
+            ClientEnrollmentService clientEnrollmentService,
             @Nullable ClipboardFanoutService clipboardFanoutService,
             CaptchaService captchaService,
             UserInfoService userInfoService,
@@ -93,6 +96,7 @@ public class ClipCascadeController {
         this.facadeUserService = facadeUserService;
         this.userService = userService;
         this.apiClientService = apiClientService;
+        this.clientEnrollmentService = clientEnrollmentService;
         this.clipboardFanoutService = clipboardFanoutService;
         this.captchaService = captchaService;
         this.userInfoService = userInfoService;
@@ -334,6 +338,23 @@ public class ClipCascadeController {
 
             Map<String, Object> response = apiClientSummary(created.client());
             response.put("apiKey", created.apiKey());
+            return response;
+        });
+    }
+
+    @PostMapping("/api/client-enrollment")
+    public ResponseEntity<?> enrollApiClient(@RequestBody Map<String, Object> payload) {
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            ClientEnrollmentService.EnrollmentResult result = clientEnrollmentService.enroll(
+                    stringPayloadValue(payload, "username"),
+                    stringPayloadValue(payload, "passwordHash"),
+                    stringPayloadValue(payload, "clientName"),
+                    payloadMap(payload.get("keyWrap")));
+
+            Map<String, Object> response = apiClientSummary(result.created().client());
+            response.put("apiKey", result.created().apiKey());
+            response.put("keyWrap", result.keyWrap());
+            response.put("syncKeyStatus", result.syncKeyStatus());
             return response;
         });
     }
@@ -720,6 +741,20 @@ public class ClipCascadeController {
     private String stringPayloadValue(Map<String, Object> payload, String key) {
         Object value = payload == null ? null : payload.get(key);
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private Map<String, ?> payloadMap(Object rawPayload) {
+        if (!(rawPayload instanceof Map<?, ?> rawMap)) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        rawMap.forEach((key, value) -> {
+            if (key != null) {
+                payload.put(String.valueOf(key), value);
+            }
+        });
+        return payload;
     }
 
     @SuppressWarnings("unchecked")

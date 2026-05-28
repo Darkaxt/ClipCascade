@@ -6,7 +6,6 @@ import time
 import os
 
 from utils.window_manager import center_window
-from utils.setup_bundle import apply_setup_bundle_to_config
 from utils.window_icon import apply_clipboard_window_icon
 from core.config import Config
 from gui.info import CustomDialog
@@ -161,22 +160,6 @@ class LoginForm(tk.Tk):
             "- LAN server: http://192.168.1.50:8080\n"
             "- Reverse proxy/domain: https://clipcascade.example.com\n\n"
             "Include protocol (http/https). Do not add /login or /clipsocket.",
-        )
-
-        setup_bundle_label = ttk.Label(self.field_frame, text="Setup Bundle:")
-        setup_bundle_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.import_setup_bundle_button = ttk.Button(
-            self.field_frame,
-            text="Import Setup Bundle",
-            command=self._open_setup_bundle_importer,
-        )
-        self.import_setup_bundle_button.grid(
-            row=3, column=1, padx=10, pady=5, sticky=tk.W
-        )
-        self._add_tooltip(
-            [setup_bundle_label, self.import_setup_bundle_button],
-            "Paste a setup bundle from /keys.html to fill server URL, username, "
-            "API key, and the shared sync encryption key.",
         )
 
         # Configure grid weights to ensure entries expand
@@ -484,7 +467,7 @@ class LoginForm(tk.Tk):
         )
         self._add_tooltip(
             [sync_key_label, self.sync_encryption_key_entry],
-            "Shared ccsk_ encryption key from a setup bundle.\n\n"
+            "Shared ccsk_ encryption key retrieved during client enrollment.\n\n"
             "When set with an API key, ClipCascade can authenticate and decrypt "
             "clipboard payloads without storing or re-entering the account password.",
         )
@@ -596,55 +579,6 @@ class LoginForm(tk.Tk):
     def _on_leave(self, event=None):
         """Revert text color when not hovered."""
         self.toggle_label.config(fg=self.toggle_normal_color)
-
-    def _open_setup_bundle_importer(self):
-        dialog = tk.Toplevel(self)
-        dialog.title("Import ClipCascade Setup Bundle")
-        dialog.transient(self)
-        dialog.grab_set()
-
-        frame = ttk.Frame(dialog, padding=16)
-        frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text="Paste setup bundle JSON:").pack(anchor=tk.W)
-        bundle_text = tk.Text(frame, width=78, height=14, wrap=tk.NONE)
-        bundle_text.pack(fill=tk.BOTH, expand=True, pady=(6, 12))
-
-        button_row = ttk.Frame(frame)
-        button_row.pack(fill=tk.X)
-
-        def import_bundle():
-            try:
-                self._apply_setup_bundle(bundle_text.get("1.0", tk.END))
-                dialog.destroy()
-                CustomDialog("Setup bundle imported.", msg_type="success").mainloop()
-            except Exception as exc:
-                CustomDialog(f"Invalid setup bundle\n{exc}", msg_type="error").mainloop()
-
-        ttk.Button(button_row, text="Import", command=import_bundle).pack(side=tk.LEFT)
-        ttk.Button(button_row, text="Cancel", command=dialog.destroy).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
-
-        dialog.update_idletasks()
-        center_window(dialog)
-        bundle_text.focus_set()
-
-    def _apply_setup_bundle(self, raw_bundle):
-        apply_setup_bundle_to_config(self.config, raw_bundle)
-        self.username_entry.delete(0, tk.END)
-        self.username_entry.insert(0, self.config.data["username"])
-        self.password_entry.delete(0, tk.END)
-        self.server_url_entry.delete(0, tk.END)
-        self.server_url_entry.insert(0, self.config.data["server_url"])
-        self.cipher_var.set(self.config.data["cipher_enabled"])
-        self.api_key_entry.delete(0, tk.END)
-        self.api_key_entry.insert(0, self.config.data["api_key"])
-        self.api_client_name_entry.delete(0, tk.END)
-        self.api_client_name_entry.insert(0, self.config.data["api_client_name"])
-        self.sync_encryption_key_entry.delete(0, tk.END)
-        self.sync_encryption_key_entry.insert(
-            0, self.config.data.get("sync_encryption_key") or ""
-        )
 
     def _bind_mousewheel(self):
         """Bind mouse wheel events to the canvas for scrolling."""

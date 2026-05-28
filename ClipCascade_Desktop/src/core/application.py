@@ -7,6 +7,8 @@ from core.constants import *
 from core.config import Config
 from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
+from utils.client_enrollment import enroll_client
+from utils.auth_recovery import clear_rejected_api_auth
 from utils.activity_log import ActivityLog
 from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
@@ -125,15 +127,19 @@ class Application:
     def authenticate_and_connect(self):
         # Attempt to connect with an existing session cookie or API key.
         if self.config.data.get("cookie") or self.config.data.get("api_key"):
-            try:
-                self._configure_encryption_key()
-                self._configure_server_connection()
-                ws_conn_successful, msg = self._get_ws_manager().connect()
-                if ws_conn_successful:
-                    self._get_ws_manager().is_login_phase = False
-                    return
-            except Exception as e:
-                logging.warning(f"Saved authentication could not connect: {e}")
+            validation_result = self.request_manager.validate_session_result()
+            if validation_result.valid is False and self.request_manager.has_api_key():
+                self._clear_rejected_api_auth(validation_result.summary())
+            else:
+                try:
+                    self._configure_encryption_key()
+                    self._configure_server_connection()
+                    ws_conn_successful, msg = self._get_ws_manager().connect()
+                    if ws_conn_successful:
+                        self._get_ws_manager().is_login_phase = False
+                        return
+                except Exception as e:
+                    logging.warning(f"Saved authentication could not connect: {e}")
 
         # enable login form
         used_saved_credentials = False
@@ -164,7 +170,27 @@ class Application:
                 raw_password = self.config.data[
                     "password"
                 ]  # Store the raw password temporarily for hashing
-                if raw_password:
+                if raw_password and self.request_manager.has_api_key():
+                    validation_result = self.request_manager.validate_session_result()
+                    if validation_result.valid is False:
+                        self._clear_rejected_api_auth(validation_result.summary())
+
+                if raw_password and not self.request_manager.has_api_key():
+                    try:
+                        enroll_client(
+                            self.config,
+                            raw_password,
+                            self.config.data.get("api_client_name")
+                            or f"{APP_NAME} {PLATFORM}",
+                        )
+                    except Exception as e:
+                        CustomDialog(
+                            "Client enrollment failed\n" + str(e),
+                            msg_type="error",
+                        ).mainloop()
+                        raw_password = None
+                        continue
+                elif raw_password:
                     self.config.data["password"] = (
                         CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
                     )  # Hash the password
@@ -204,6 +230,10 @@ class Application:
                         msg_type="error",
                     ).mainloop()
             else:
+                if self.request_manager.has_api_key() and msg_login.startswith(
+                    "API key rejected:"
+                ):
+                    self._clear_rejected_api_auth(msg_login)
                 CustomDialog("Login Failed\n" + msg_login, msg_type="error").mainloop()
 
             raw_password = None  # Clear the raw password
@@ -220,10 +250,15 @@ class Application:
             )
         else:
             self.config.data["stun_url"] = ""
-            self.config.data["maxsize"] = self.request_manager.maxsize()
             self.config.data["websocket_url"] = Config.convert_to_websocket_url(
                 self.config.data["server_url"], WEBSOCKET_ENDPOINT
             )
+        self.config.data["maxsize"] = self.request_manager.maxsize()
+
+    def _clear_rejected_api_auth(self, reason: str):
+        if clear_rejected_api_auth(self.config.data):
+            logging.warning(f"Cleared rejected API authentication: {reason}")
+            self.config.save()
 
     def _get_ws_manager(self):
         if self.config.data["server_mode"] == "P2P":
@@ -275,7 +310,7 @@ class Application:
                 else:
                     key = "linux_non_gui"
 
-            if response_data[key] != APP_VERSION:
+            if is_version_greater(response_data[key], APP_VERSION):
                 return [True, response_data[key], APP_VERSION, RELEASE_URL]
         except Exception as e:
             logging.error(f"Error checking for new version: {e}")

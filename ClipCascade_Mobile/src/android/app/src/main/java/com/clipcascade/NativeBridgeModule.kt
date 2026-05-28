@@ -28,6 +28,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 
 
@@ -38,6 +39,7 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
+    private val secureRandom = SecureRandom()
 
     override fun getName(): String {
         return "NativeBridgeModule"
@@ -52,6 +54,27 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             promise.resolve("Cookies cleared successfully!")
         } catch (e: Exception) {
             promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+        }
+    }
+
+    @ReactMethod
+    fun secureRandomBase64Url(byteCount: Int, promise: Promise) {
+        try {
+            if (byteCount <= 0 || byteCount > 4096) {
+                promise.reject("RANDOM_ERROR", "Invalid random byte count")
+                return
+            }
+
+            val bytes = ByteArray(byteCount)
+            secureRandom.nextBytes(bytes)
+            promise.resolve(
+                Base64.encodeToString(
+                    bytes,
+                    Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+                )
+            )
+        } catch (e: Exception) {
+            promise.reject("RANDOM_ERROR", "Failed to generate secure random bytes", e)
         }
     }
     

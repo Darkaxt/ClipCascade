@@ -42,6 +42,7 @@ import {
 } from './AsyncStorageManagement';
 import {
   buildAuthHeaders,
+  clearRejectedApiAuth,
   hasApiKey,
 } from './AuthConfig';
 import ClipboardActivityLog from './ClipboardActivityLog';
@@ -56,10 +57,8 @@ import {
   LOGIN_EXTRA_CONFIG_KEYS,
 } from './SettingsConfig';
 import SettingsPage from './SettingsPage';
-import {
-  applySetupBundleToData,
-  syncEncryptionKeyToBase64,
-} from './SetupBundle';
+import { syncEncryptionKeyToBase64 } from './SyncEncryptionKey';
+import { enrollClient } from './ClientEnrollment';
 import {
   getConnectedHeaderActions,
   getConnectedServiceActions,
@@ -202,6 +201,24 @@ export default function App() {
     }
   };
 
+  const clearRejectedApiAuthFromStorage = async data_s => {
+    const nextData = clearRejectedApiAuth(data_s);
+    await setDataInAsyncStorage('api_key', '');
+    await setDataInAsyncStorage('api_client_id', '');
+    await setDataInAsyncStorage('api_client_name', '');
+    await setDataInAsyncStorage('csrf_token', '');
+    await setDataInAsyncStorage('hashed_password', '');
+    setData(previous => ({
+      ...previous,
+      api_key: '',
+      api_client_id: '',
+      api_client_name: '',
+      csrf_token: '',
+      hashed_password: '',
+    }));
+    return nextData;
+  };
+
   // notification
   const onDisplayNotification = async () => {
     try {
@@ -319,6 +336,9 @@ export default function App() {
               foregroundService();
             }
           } else {
+            if (hasApiKey(data_s)) {
+              data_s = await clearRejectedApiAuthFromStorage(data_s);
+            }
             //enable login page
             await setDataInAsyncStorage('wsStatusMessage', '');
             setEnableLoginPage(true);
@@ -974,7 +994,6 @@ export default function App() {
 
   // password
   const [password, setPassword] = useState('');
-  const [setupBundleInput, setSetupBundleInput] = useState('');
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
@@ -997,13 +1016,18 @@ export default function App() {
       await NativeBridgeModule.clearCookies();
 
       let password_s = null;
+      let rawPassword = '';
+      const typedPassword = pass === null ? password : '';
       const usesPasswordlessApiKey =
         hasApiKey(data_s_c || data) &&
         String((data_s_c || data).sync_encryption_key || '').trim() !== '';
       let encryptionPassword = '';
-      if (pass === null && !usesPasswordlessApiKey) {
-        password_s = await stringToSHA3_512LowercaseHex(password);
-        encryptionPassword = password;
+      if (pass === null && typedPassword !== '') {
+        rawPassword = typedPassword;
+        password_s = await stringToSHA3_512LowercaseHex(typedPassword);
+        encryptionPassword = typedPassword;
+      } else if (pass === null && !usesPasswordlessApiKey) {
+        password_s = await stringToSHA3_512LowercaseHex('');
       } else {
         // saved password
         password_s = pass;
@@ -1019,6 +1043,30 @@ export default function App() {
 
       // remove trailing slashes in server_url
       data_s.server_url = data_s.server_url.replace(/\/+$/, '');
+
+      if (rawPassword && hasApiKey(data_s)) {
+        const validResult = await validateSession(data_s);
+        if (!validResult[0]) {
+          data_s = await clearRejectedApiAuthFromStorage(data_s);
+        }
+      }
+
+      if (!hasApiKey(data_s) && rawPassword) {
+        try {
+          data_s = await enrollClient(
+            data_s,
+            rawPassword,
+            fetchTimeout,
+            NativeBridgeModule,
+          );
+          password_s = null;
+          encryptionPassword = '';
+        } catch (error) {
+          setPassword('');
+          setLoginStatusMessage('❌ Client enrollment failed: ' + error);
+          return;
+        }
+      }
 
       let iteration = 0;
       let loginResult;
@@ -1040,7 +1088,7 @@ export default function App() {
         }
 
         // Save password in async storage
-        if (data_s.save_password === 'true') {
+        if (data_s.save_password === 'true' && password_s) {
           await setDataInAsyncStorage('password', password_s);
         }
         // Remove password from memory
@@ -1260,36 +1308,6 @@ export default function App() {
               }
               autoCapitalize="none"
             />
-          </View>
-          <View style={styles.setupBundleBlock}>
-            <Text style={styles.label}>Setup Bundle:</Text>
-            <TextInput
-              style={[styles.input, styles.setupBundleInput]}
-              value={setupBundleInput}
-              onChangeText={setSetupBundleInput}
-              multiline
-              autoCapitalize="none"
-              placeholder="Paste clipcascade-setup-v1 JSON"
-            />
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => {
-                try {
-                  const nextData = applySetupBundleToData(
-                    data,
-                    setupBundleInput,
-                  );
-                  setData(nextData);
-                  setPassword('');
-                  setSetupBundleInput('');
-                  setLoginStatusMessage('✅ Setup bundle imported.');
-                } catch (error) {
-                  setLoginStatusMessage('❌ Invalid setup bundle: ' + error);
-                }
-              }}
-            >
-              <Text style={styles.loginButtonText}>Import Setup Bundle</Text>
-            </TouchableOpacity>
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Enable Encryption (recommended):</Text>
@@ -1674,14 +1692,6 @@ const styles = StyleSheet.create({
     maxWidth: 320,
     minWidth: 180,
     padding: 10,
-  },
-  setupBundleBlock: {
-    marginBottom: 10,
-  },
-  setupBundleInput: {
-    flex: 0,
-    minHeight: 96,
-    textAlignVertical: 'top',
   },
   loginButtonText: {
     color: 'white',

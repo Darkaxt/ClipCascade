@@ -2,6 +2,15 @@ export const hasApiKey = data => {
   return Boolean(String(data?.api_key || '').trim());
 };
 
+export const clearRejectedApiAuth = data => ({
+  ...data,
+  api_key: '',
+  api_client_id: '',
+  api_client_name: '',
+  csrf_token: '',
+  hashed_password: '',
+});
+
 export const buildAuthHeaders = (data, cookieHeader = '') => {
   const apiKey = String(data?.api_key || '').trim();
   if (apiKey) {

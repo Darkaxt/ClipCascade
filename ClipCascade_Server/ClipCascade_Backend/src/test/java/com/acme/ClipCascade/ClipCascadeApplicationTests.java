@@ -1,5 +1,6 @@
 package com.acme.ClipCascade;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -26,6 +27,7 @@ import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.model.UserPrincipal;
 import com.acme.clipcascade.model.Users;
+import com.acme.clipcascade.repo.SyncKeyEscrowRepo;
 import com.acme.clipcascade.service.ApiClientService;
 import com.acme.clipcascade.utils.HashingUtility;
 
@@ -54,10 +56,18 @@ class ClipCascadeApplicationTests {
 	private ApiClientService apiClientService;
 
 	@Autowired
+	private SyncKeyEscrowRepo syncKeyEscrowRepo;
+
+	@Autowired
 	private TestRestTemplate restTemplate;
 
 	@Autowired
 	private MockMvc mockMvc;
+
+	@BeforeEach
+	void clearSyncKeyEscrows() {
+		syncKeyEscrowRepo.deleteAll();
+	}
 
 	@Test
 	void contextLoads() {
@@ -117,6 +127,80 @@ class ClipCascadeApplicationTests {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat((String) response.getBody().get("apiKey")).startsWith("cck_");
 		assertThat(response.getBody().get("scopes")).isEqualTo(List.of(ApiClientService.SCOPE_MANAGE_KEYS));
+		assertThat(response.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
+	}
+
+	@Test
+	@SuppressWarnings("rawtypes")
+	void credentialEnrollmentCreatesSyncApiKeyAndStoresWrappedSyncKey() throws Exception {
+		Map<String, String> keyWrap = sampleWrappedSyncKey("first-ciphertext");
+		Map<String, Object> payload = Map.of(
+				"username", "admin",
+				"passwordHash", sha3Hex("admin123"),
+				"clientName", "Android phone",
+				"keyWrap", keyWrap);
+
+		ResponseEntity<Map> response = restTemplate.exchange(
+				"/api/client-enrollment",
+				HttpMethod.POST,
+				new HttpEntity<>(payload, jsonHeaders()),
+				Map.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat((String) response.getBody().get("apiKey")).startsWith("cck_");
+		assertThat(response.getBody().get("scopes")).isEqualTo(List.of(ApiClientService.SCOPE_SYNC));
+		assertThat(response.getBody().get("syncKeyStatus")).isEqualTo("created");
+		assertThat(response.getBody().get("keyWrap")).isEqualTo(keyWrap);
+		assertThat(response.getHeaders().get(HttpHeaders.SET_COOKIE)).isNull();
+	}
+
+	@Test
+	@SuppressWarnings("rawtypes")
+	void credentialEnrollmentReturnsExistingWrappedSyncKeyForLaterDevices() throws Exception {
+		Map<String, String> originalWrap = sampleWrappedSyncKey("original-ciphertext");
+		Map<String, String> ignoredWrap = sampleWrappedSyncKey("ignored-ciphertext");
+
+		restTemplate.exchange(
+				"/api/client-enrollment",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of(
+						"username", "admin",
+						"passwordHash", sha3Hex("admin123"),
+						"clientName", "Android phone",
+						"keyWrap", originalWrap), jsonHeaders()),
+				Map.class);
+
+		ResponseEntity<Map> second = restTemplate.exchange(
+				"/api/client-enrollment",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of(
+						"username", "admin",
+						"passwordHash", sha3Hex("admin123"),
+						"clientName", "Windows laptop",
+						"keyWrap", ignoredWrap), jsonHeaders()),
+				Map.class);
+
+		assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat((String) second.getBody().get("apiKey")).startsWith("cck_");
+		assertThat(second.getBody().get("clientName")).isEqualTo("Windows laptop");
+		assertThat(second.getBody().get("syncKeyStatus")).isEqualTo("existing");
+		assertThat(second.getBody().get("keyWrap")).isEqualTo(originalWrap);
+	}
+
+	@Test
+	void credentialEnrollmentRejectsInvalidPasswordHash() throws Exception {
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/client-enrollment",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of(
+						"username", "admin",
+						"passwordHash", sha3Hex("wrong"),
+						"clientName", "Android phone",
+						"keyWrap", sampleWrappedSyncKey("ciphertext")), jsonHeaders()),
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+		assertThat(response.getBody()).contains("Invalid username or password");
 	}
 
 	@Test
@@ -223,6 +307,13 @@ class ClipCascadeApplicationTests {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).contains("ClipCascade Key Manager");
 		assertThat(response.getBody()).contains("/api/key-auth/session-management-key");
+		assertThat(response.getBody()).contains("Registered API Keys");
+		assertThat(response.getBody()).contains("Advanced manual setup");
+		assertThat(response.getBody()).contains("Manual API Key");
+		assertThat(response.getBody()).contains("mintSessionManagementKey().catch");
+		assertThat(response.getBody()).doesNotContain("<h2>Create Device Key</h2>");
+		assertThat(response.getBody()).doesNotContain("Setup Bundle");
+		assertThat(response.getBody()).doesNotContain("setup bundle");
 		assertThat(response.getBody()).doesNotContain("Management key name");
 		assertThat(response.getBody()).doesNotContain("autocomplete=\"current-password\"");
 	}
@@ -271,5 +362,21 @@ class ClipCascadeApplicationTests {
 		MessageDigest digest = MessageDigest.getInstance("SHA3-512");
 		return HashingUtility.convertBytesToLowercaseHex(
 				digest.digest(input.getBytes(StandardCharsets.UTF_8)));
+	}
+
+	private static HttpHeaders jsonHeaders() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		return headers;
+	}
+
+	private static Map<String, String> sampleWrappedSyncKey(String ciphertext) {
+		return Map.of(
+				"version", "pbkdf2-sha256-aes-gcm-v1",
+				"rounds", "210000",
+				"salt", "AAAAAAAAAAAAAAAAAAAAAA",
+				"nonce", "00112233445566778899aabb",
+				"ciphertext", ciphertext,
+				"tag", "ffeeddccbbaa99887766554433221100");
 	}
 }

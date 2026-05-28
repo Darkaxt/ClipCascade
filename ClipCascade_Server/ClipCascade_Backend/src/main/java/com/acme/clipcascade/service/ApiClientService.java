@@ -85,6 +85,11 @@ public class ApiClientService {
 
     @Transactional
     public CreatedApiClient createManagementKey(String username, String passwordHash, String clientName) {
+        Users user = validateUserPasswordHash(username, passwordHash);
+        return createClientKeyForUser(user, clientName, DEFAULT_MANAGEMENT_SCOPES);
+    }
+
+    public Users validateUserPasswordHash(String username, String passwordHash) {
         Users user = userRepo.findById(username)
                 .filter(Users::getEnabled)
                 .orElseThrow(() -> new IllegalArgumentException("Invalid username or password"));
@@ -94,7 +99,7 @@ public class ApiClientService {
             throw new IllegalArgumentException("Invalid username or password");
         }
 
-        return createClientKeyForUser(user, clientName, DEFAULT_MANAGEMENT_SCOPES);
+        return user;
     }
 
     private CreatedApiClient createClientKeyForUser(Users user, String clientName, Set<String> scopes) {

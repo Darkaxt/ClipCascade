@@ -2,7 +2,6 @@
  * @format
  */
 
-import React from 'react';
 import { NativeModules } from 'react-native';
 import App from '../App';
 

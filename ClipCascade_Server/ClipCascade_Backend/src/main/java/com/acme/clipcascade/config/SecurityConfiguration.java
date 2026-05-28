@@ -69,6 +69,7 @@ public class SecurityConfiguration {
 								"/health",
 								"/ping",
 								"/keys.html",
+								"/api/client-enrollment",
 								"/api/key-auth/management-key",
 								"/api/key-auth/session-management-key",
 								"/clipsocket",
@@ -86,7 +87,7 @@ public class SecurityConfiguration {
 						.logoutUrl("/logout") // The URL to submit a logout request
 						.logoutSuccessUrl("/login?logout")) // Where to go after successful logout
 				.sessionManagement(session -> session
-						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
+						.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
 						.maximumSessions(-1) // Allow unlimited sessions
 						.sessionRegistry(sessionRegistry()) // Use the session registry
 						.expiredSessionStrategy(new CustomExpiredSession())) // Custom expired session strategy
