@@ -86,7 +86,7 @@ services:
       # - CC_PORT=8080
 
       # # ⚙️ Configure the server session timeout.
-      # # Note: On restart, the session will be logged out.
+      # # Sessions are stored in the database and survive container restarts.
       # # Default: 525960m  (1 year)
       # - CC_SESSION_TIMEOUT=525960m
 
