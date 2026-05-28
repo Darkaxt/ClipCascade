@@ -70,6 +70,7 @@ public class SecurityConfiguration {
 								"/ping",
 								"/keys.html",
 								"/api/key-auth/management-key",
+								"/api/key-auth/session-management-key",
 								"/clipsocket",
 								"/assets/**")
 						.permitAll() // <- Allow access to these URLs without authentication

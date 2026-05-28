@@ -87,10 +87,11 @@
         color: var(--muted);
       }
 
-      .grid {
+      .manager-layout {
         display: grid;
-        grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
         gap: 18px;
+        max-width: 900px;
+        margin: 0 auto;
       }
 
       .panel {
@@ -237,6 +238,19 @@
         background: #fbfcfe;
       }
 
+      .auth-state .button-row {
+        justify-content: flex-end;
+      }
+
+      .fallback-access summary {
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      .fallback-access .stack {
+        margin-top: 14px;
+      }
+
       table {
         width: 100%;
         border-collapse: collapse;
@@ -291,9 +305,13 @@
       }
 
       @media (max-width: 860px) {
-        .grid,
         .two-col {
           grid-template-columns: 1fr;
+        }
+
+        .auth-state {
+          align-items: flex-start;
+          flex-direction: column;
         }
 
         .topbar {
@@ -310,77 +328,32 @@
           <img src="/assets/images/logo.png" alt="" />
           <div>
             <h1>ClipCascade Key Manager</h1>
-            <div class="muted">Sessionless API-key control plane</div>
+            <div class="muted">Device setup and API-key control plane</div>
           </div>
         </div>
         <a href="/" class="muted">Back to app</a>
       </header>
 
-      <div class="grid">
-        <section>
-          <div class="panel">
-            <h2>Unlock Management</h2>
-            <div id="status" class="status"></div>
-            <div class="stack" style="margin-top: 12px">
-              <div>
-                <label for="username">Username</label>
-                <input id="username" autocomplete="username" value="admin" />
-              </div>
-              <div>
-                <label for="password">Password</label>
-                <input id="password" type="password" autocomplete="current-password" />
-              </div>
-              <div>
-                <label for="managementClientName">Management key name</label>
-                <input id="managementClientName" value="Browser key manager" />
-              </div>
-              <label class="checkbox-row">
-                <input id="rememberKey" type="checkbox" />
-                Remember management key on this browser
-              </label>
-              <div class="button-row">
-                <button id="mintManagementKey" class="primary" type="button">
-                  Mint Management Key
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <h2>Use Existing Key</h2>
-            <div class="stack">
-              <div>
-                <label for="existingManagementKey">Management API key</label>
-                <input
-                  id="existingManagementKey"
-                  type="password"
-                  autocomplete="off"
-                  placeholder="cck_..."
-                />
-              </div>
-              <div class="button-row">
-                <button id="useManagementKey" class="secondary" type="button">
-                  Use Key
-                </button>
-                <button id="forgetManagementKey" class="secondary" type="button">
-                  Forget
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
+      <div class="manager-layout">
         <section class="stack">
           <div class="panel">
             <div class="auth-state">
               <div>
                 <strong id="authLabel">Not connected</strong>
-                <div id="authDetails" class="muted">Mint or paste a management key.</div>
+                <div id="authDetails" class="muted">
+                  A browser management key will be created from your signed-in session when needed.
+                </div>
               </div>
-              <button id="refreshKeys" class="secondary" type="button" disabled>
-                Refresh
-              </button>
+              <div class="button-row">
+                <button id="refreshKeys" class="secondary" type="button" disabled>
+                  Refresh
+                </button>
+                <button id="forgetManagementKey" class="secondary" type="button">
+                  Forget browser key
+                </button>
+              </div>
             </div>
+            <div id="status" class="status" style="margin-top: 12px"></div>
           </div>
 
           <div class="panel">
@@ -411,7 +384,7 @@
                 <button id="generateSyncKey" class="secondary" type="button">
                   Generate Sync Key
                 </button>
-                <button id="createDeviceKey" class="primary" type="button" disabled>
+                <button id="createDeviceKey" class="primary" type="button">
                   Create Device Key
                 </button>
               </div>
@@ -434,18 +407,39 @@
 
           <div class="panel">
             <h2>Registered API Keys</h2>
-            <div id="keyTableHost" class="empty">Authorize with a management key to list keys.</div>
+            <div id="keyTableHost" class="empty">
+              Create a device key or use an existing management key to list registered keys.
+            </div>
           </div>
+
+          <details class="panel fallback-access">
+            <summary>Use an existing management key</summary>
+            <div class="stack">
+              <div>
+                <label for="existingManagementKey">Management API key</label>
+                <input
+                  id="existingManagementKey"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="cck_..."
+                />
+              </div>
+              <div class="button-row">
+                <button id="useManagementKey" class="secondary" type="button">
+                  Use Key
+                </button>
+              </div>
+            </div>
+          </details>
         </section>
       </div>
     </main>
 
-    <script src="/assets/js/sha3.min.js"></script>
     <script>
       const STORAGE_KEY = "clipcascade.managementApiKey";
+      const MANAGEMENT_CLIENT_NAME = "Browser key manager";
       const state = {
         managementKey: "",
-        remember: false,
         username: "",
         latestDeviceApiKey: "",
         latestSyncKey: "",
@@ -454,12 +448,7 @@
       const byId = (id) => document.getElementById(id);
       const controls = {
         status: byId("status"),
-        username: byId("username"),
-        password: byId("password"),
-        managementClientName: byId("managementClientName"),
-        rememberKey: byId("rememberKey"),
         existingManagementKey: byId("existingManagementKey"),
-        mintManagementKey: byId("mintManagementKey"),
         useManagementKey: byId("useManagementKey"),
         forgetManagementKey: byId("forgetManagementKey"),
         authLabel: byId("authLabel"),
@@ -487,29 +476,27 @@
         state.managementKey = apiKey.trim();
         state.username = username || state.username || "";
         controls.existingManagementKey.value = state.managementKey;
-        controls.authLabel.textContent = "Management key active";
+        controls.authLabel.textContent = "Browser management key active";
         controls.authDetails.textContent = state.username
           ? `Managing keys for ${state.username}`
           : "Managing keys with pasted API key";
         controls.refreshKeys.disabled = false;
-        controls.createDeviceKey.disabled = false;
-        if (state.remember) {
-          localStorage.setItem(STORAGE_KEY, state.managementKey);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
+        controls.forgetManagementKey.disabled = false;
+        localStorage.setItem(STORAGE_KEY, state.managementKey);
       }
 
       function resetAuthorized() {
         state.managementKey = "";
         state.username = "";
         controls.existingManagementKey.value = "";
-        controls.authLabel.textContent = "Not connected";
-        controls.authDetails.textContent = "Mint or paste a management key.";
+        controls.authLabel.textContent = "No browser key yet";
+        controls.authDetails.textContent =
+          "A browser management key will be created from your signed-in session when needed.";
         controls.refreshKeys.disabled = true;
-        controls.createDeviceKey.disabled = true;
+        controls.forgetManagementKey.disabled = true;
         controls.keyTableHost.className = "empty";
-        controls.keyTableHost.textContent = "Authorize with a management key to list keys.";
+        controls.keyTableHost.textContent =
+          "Create a device key or use an existing management key to list registered keys.";
         localStorage.removeItem(STORAGE_KEY);
       }
 
@@ -563,30 +550,20 @@
         return `ccsk_${generateBase64Url(bytes)}`;
       }
 
-      async function mintManagementKey() {
-        const username = controls.username.value.trim();
-        const password = controls.password.value;
-        const clientName = controls.managementClientName.value.trim() || "Browser key manager";
-        if (!username || !password) {
-          setStatus("error", "Username and password are required.");
-          return;
-        }
-        setStatus("warn", "Minting management key...");
-        const payload = {
-          username,
-          passwordHash: sha3_512(password),
-          clientName,
-        };
+      async function mintSessionManagementKey() {
+        setStatus("warn", "Creating browser management key from the current login...");
         const created = await requestJson(
-          "/api/key-auth/management-key",
-          { method: "POST", body: JSON.stringify(payload) },
+          "/api/key-auth/session-management-key",
+          {
+            method: "POST",
+            body: JSON.stringify({ clientName: MANAGEMENT_CLIENT_NAME }),
+          },
           false
         );
-        controls.password.value = "";
-        state.remember = controls.rememberKey.checked;
         setAuthorized(created.apiKey, created.username);
-        setStatus("ok", "Management key minted. It has manage_keys scope only.");
+        setStatus("ok", "Browser management key ready.");
         await loadKeys();
+        return created.apiKey;
       }
 
       async function useExistingManagementKey() {
@@ -595,12 +572,34 @@
           setStatus("error", "Paste a management API key first.");
           return;
         }
-        state.remember = controls.rememberKey.checked;
         state.managementKey = apiKey;
         setStatus("warn", "Checking management key...");
         await loadKeys();
         setAuthorized(apiKey, state.username);
         setStatus("ok", "Management key accepted.");
+      }
+
+      async function ensureManagementKey() {
+        if (state.managementKey) {
+          return state.managementKey;
+        }
+
+        const rememberedKey = localStorage.getItem(STORAGE_KEY);
+        if (rememberedKey) {
+          controls.existingManagementKey.value = rememberedKey;
+          try {
+            await useExistingManagementKey();
+            return state.managementKey;
+          } catch (error) {
+            resetAuthorized();
+            setStatus(
+              "warn",
+              "Remembered management key no longer works. Creating a new browser key..."
+            );
+          }
+        }
+
+        return mintSessionManagementKey();
       }
 
       async function loadKeys() {
@@ -690,10 +689,7 @@
       }
 
       async function createDeviceKey() {
-        if (!state.managementKey) {
-          setStatus("error", "Authorize with a management key first.");
-          return;
-        }
+        await ensureManagementKey();
         const clientName = controls.deviceName.value.trim();
         if (!clientName) {
           setStatus("error", "Client name is required.");
@@ -727,7 +723,7 @@
         const bundle = {
           type: "clipcascade-setup-v1",
           serverUrl: window.location.origin,
-          username: created.username || state.username || controls.username.value.trim(),
+          username: created.username || state.username,
           apiKey: created.apiKey,
           clientId: created.clientId,
           clientName: created.clientName,
@@ -749,14 +745,6 @@
         setStatus("ok", `${label} copied.`);
       }
 
-      controls.mintManagementKey.addEventListener("click", () =>
-        mintManagementKey().catch((error) => {
-          const existingKeyNote = state.managementKey
-            ? " Existing management key remains active."
-            : "";
-          setStatus("error", `${error.message}${existingKeyNote}`);
-        })
-      );
       controls.useManagementKey.addEventListener("click", () =>
         useExistingManagementKey().catch((error) => {
           resetAuthorized();
@@ -787,21 +775,18 @@
         copyText(state.latestSyncKey, "Sync encryption key")
       );
 
-      controls.rememberKey.addEventListener("change", () => {
-        state.remember = controls.rememberKey.checked;
-        if (state.managementKey && state.remember) {
-          localStorage.setItem(STORAGE_KEY, state.managementKey);
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      });
-
       const rememberedKey = localStorage.getItem(STORAGE_KEY);
       if (rememberedKey) {
-        controls.rememberKey.checked = true;
         controls.existingManagementKey.value = rememberedKey;
-        state.remember = true;
-        setStatus("warn", "A remembered management key is available. Click Use Key to unlock.");
+        useExistingManagementKey().catch((error) => {
+          resetAuthorized();
+          setStatus(
+            "warn",
+            `Remembered management key was not accepted: ${error.message}. A new browser key will be created when needed.`
+          );
+        });
+      } else {
+        resetAuthorized();
       }
     </script>
   </body>

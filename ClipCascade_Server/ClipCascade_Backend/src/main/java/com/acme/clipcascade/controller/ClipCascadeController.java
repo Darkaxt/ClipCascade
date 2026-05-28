@@ -338,6 +338,32 @@ public class ClipCascadeController {
         });
     }
 
+    @PostMapping("/api/key-auth/session-management-key")
+    @Transactional
+    public ResponseEntity<?> createSessionManagementApiKey(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestBody(required = false) Map<String, Object> payload) {
+
+        if (userPrincipal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Login required");
+        }
+        if (userPrincipal.getClientId() != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Browser session required");
+        }
+
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            String clientName = stringPayloadValue(payload == null ? Collections.emptyMap() : payload, "clientName");
+            ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
+                    userPrincipal.getUsername(),
+                    clientName.isBlank() ? "Browser key manager" : clientName,
+                    Set.of(ApiClientService.SCOPE_MANAGE_KEYS));
+
+            Map<String, Object> response = apiClientSummary(created.client());
+            response.put("apiKey", created.apiKey());
+            return response;
+        });
+    }
+
     @GetMapping("/api/client-keys")
     public ResponseEntity<?> listApiClientKeys(@AuthenticationPrincipal UserPrincipal userPrincipal) {
         if (!apiClientService.hasScope(userPrincipal, ApiClientService.SCOPE_MANAGE_KEYS)) {

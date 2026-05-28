@@ -2,6 +2,7 @@ package com.acme.ClipCascade;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -20,11 +22,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.constants.ServerConstants;
+import com.acme.clipcascade.model.UserPrincipal;
+import com.acme.clipcascade.model.Users;
 import com.acme.clipcascade.service.ApiClientService;
 import com.acme.clipcascade.utils.HashingUtility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // @SpringBootTest
 @SpringBootTest(
@@ -35,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 				"spring.datasource.password=",
 				"spring.jpa.hibernate.ddl-auto=validate"
 		})
+@AutoConfigureMockMvc
 class ClipCascadeApplicationTests {
 
 	@Autowired(required = false)
@@ -46,6 +55,9 @@ class ClipCascadeApplicationTests {
 
 	@Autowired
 	private TestRestTemplate restTemplate;
+
+	@Autowired
+	private MockMvc mockMvc;
 
 	@Test
 	void contextLoads() {
@@ -108,6 +120,59 @@ class ClipCascadeApplicationTests {
 	}
 
 	@Test
+	void browserSessionMintsManagementApiKeyWithoutRepeatingPassword() throws Exception {
+		UserPrincipal principal = new UserPrincipal(
+				new Users("admin", "unused", RoleConstants.ADMIN, true),
+				null);
+
+		String response = mockMvc.perform(post("/api/key-auth/session-management-key")
+				.with(user(principal))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"clientName\":\"Browser key manager\"}"))
+				.andExpect(status().isOk())
+				.andReturn()
+				.getResponse()
+				.getContentAsString();
+
+		assertThat(response).contains("\"apiKey\":\"cck_");
+		assertThat(response).contains(ApiClientService.SCOPE_MANAGE_KEYS);
+		assertThat(response).doesNotContain(ApiClientService.SCOPE_SYNC);
+	}
+
+	@Test
+	void syncApiKeyCannotMintBrowserManagementKey() {
+		ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
+				"admin",
+				"Sync only",
+				Set.of(ApiClientService.SCOPE_SYNC));
+		HttpHeaders headers = new HttpHeaders();
+		headers.set(ApiClientService.API_KEY_HEADER, created.apiKey());
+		headers.setContentType(MediaType.APPLICATION_JSON);
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/key-auth/session-management-key",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of("clientName", "Browser key manager"), headers),
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+	}
+
+	@Test
+	void anonymousRequestCannotMintBrowserManagementKey() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+
+		ResponseEntity<String> response = restTemplate.exchange(
+				"/api/key-auth/session-management-key",
+				HttpMethod.POST,
+				new HttpEntity<>(Map.of("clientName", "Browser key manager"), headers),
+				String.class);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+	}
+
+	@Test
 	void syncOnlyApiKeyCannotManageClientKeys() {
 		ApiClientService.CreatedApiClient created = apiClientService.createClientKey(
 				"admin",
@@ -157,7 +222,9 @@ class ClipCascadeApplicationTests {
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).contains("ClipCascade Key Manager");
-		assertThat(response.getBody()).contains("/api/key-auth/management-key");
+		assertThat(response.getBody()).contains("/api/key-auth/session-management-key");
+		assertThat(response.getBody()).doesNotContain("Management key name");
+		assertThat(response.getBody()).doesNotContain("autocomplete=\"current-password\"");
 	}
 
 	@Test
