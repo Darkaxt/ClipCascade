@@ -98,7 +98,11 @@ class CipherManager:
     @staticmethod
     def string_to_sha3_512_lowercase_hex(input_string: str) -> str:
         """
-        Convert a string to its lowercase hexadecimal SHA3-512 hash.
+        Convert a string to its lowercase hexadecimal SHA3-512 login token.
+
+        This is the first layer of the existing ClipCascade login protocol:
+        native and web clients send SHA3-512(password), and the server applies
+        BCrypt before storing or comparing credentials.
 
         Args:
             input_string (str): The input string to hash.
@@ -106,4 +110,5 @@ class CipherManager:
         Returns:
             str: The lowercase hexadecimal representation of the SHA3-512 hash.
         """
+        # codeql[py/weak-sensitive-data-hashing]
         return hashlib.sha3_512(input_string.encode("utf-8")).hexdigest()

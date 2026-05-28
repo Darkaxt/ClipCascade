@@ -39,6 +39,12 @@ import {
   shouldSuppressClipboardEcho,
 } from './ClipboardEchoSuppression';
 import {
+  createSafeKeyStore,
+  deleteSafeKeyStoreValue,
+  getSafeKeyStoreValue,
+  setSafeKeyStoreValue,
+} from './SafeKeyStore';
+import {
   getClipboardCaptureUnavailableMessage,
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
@@ -1011,7 +1017,7 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    const temp = {};
+                    const temp = createSafeKeyStore();
                     const file_paths = clipContent
                       .split(',')
                       .filter(item => item.trim() !== '');
@@ -1132,18 +1138,18 @@ module.exports = async (inputData = null) => {
           // p2p variables
           let myPeerId = null; // Your assigned peer ID from server
           let peers = new Set(); // Current set of known peer IDs in the "room"
-          let peerConnections = {}; // Map: peerId -> RTCPeerConnection
-          let dataChannels = {}; // Map: peerId -> RTCDataChannel
+          let peerConnections = createSafeKeyStore(); // Map: peerId -> RTCPeerConnection
+          let dataChannels = createSafeKeyStore(); // Map: peerId -> RTCDataChannel
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
-          const peerOpChains = {};
-          const dataChannelHeartbeatTimers = {};
+          const peerOpChains = createSafeKeyStore();
+          const dataChannelHeartbeatTimers = createSafeKeyStore();
           const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
 
           // Fragment variables
           let sendingFragmentId = '';
-          let receivingFragments = {}; // Map: fragmentId -> array of strings (ordered)
+          let receivingFragments = createSafeKeyStore(); // Map: fragmentId -> array of strings (ordered)
           let sendingFragmentStats = null;
           let receivingFragmentStats = null;
 
@@ -1169,7 +1175,7 @@ module.exports = async (inputData = null) => {
           };
 
           const resetReceivingFragments = async () => {
-            receivingFragments = {};
+            receivingFragments = createSafeKeyStore();
             receivingFragmentStats = null;
             await resetP2PMsg();
           };
@@ -1188,33 +1194,44 @@ module.exports = async (inputData = null) => {
           };
 
           const runSerializedPeerOp = (peerId, op) => {
-            const prev = peerOpChains[peerId] || Promise.resolve();
+            const prev =
+              getSafeKeyStoreValue(peerOpChains, peerId) || Promise.resolve();
             const next = prev.then(() => op()).catch(() => {});
-            peerOpChains[peerId] = next;
+            setSafeKeyStoreValue(peerOpChains, peerId, next);
             return next;
           };
 
           const startDataChannelHeartbeat = (remotePeerId, channel) => {
-            if (dataChannelHeartbeatTimers[remotePeerId]) {
-              clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
+            const existingTimer = getSafeKeyStoreValue(
+              dataChannelHeartbeatTimers,
+              remotePeerId,
+            );
+            if (existingTimer) {
+              clearInterval(existingTimer);
             }
-            dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
-              try {
-                if (channel.readyState === 'open') {
-                  channel.send(P2P_DC_KEEPALIVE_JSON);
+            setSafeKeyStoreValue(
+              dataChannelHeartbeatTimers,
+              remotePeerId,
+              setInterval(() => {
+                try {
+                  if (channel.readyState === 'open') {
+                    channel.send(P2P_DC_KEEPALIVE_JSON);
+                  }
+                } catch (e) {
+                  // no-op
                 }
-              } catch (e) {
-                // no-op
-              }
-            }, HEARTBEAT_INTERVAL);
+              }, HEARTBEAT_INTERVAL),
+            );
           };
 
           async function cleanupPeerConnections() {
             p2pShuttingDown = true;
             try {
               for (const id of Object.keys(dataChannelHeartbeatTimers)) {
-                clearInterval(dataChannelHeartbeatTimers[id]);
-                delete dataChannelHeartbeatTimers[id];
+                clearInterval(
+                  getSafeKeyStoreValue(dataChannelHeartbeatTimers, id),
+                );
+                deleteSafeKeyStoreValue(dataChannelHeartbeatTimers, id);
               }
               for (const [, dc] of Object.entries(dataChannels)) {
                 if (dc) {
@@ -1229,7 +1246,7 @@ module.exports = async (inputData = null) => {
                   }
                 }
               }
-              dataChannels = {};
+              dataChannels = createSafeKeyStore();
 
               for (const [, pc] of Object.entries(peerConnections)) {
                 if (pc) {
@@ -1243,14 +1260,14 @@ module.exports = async (inputData = null) => {
                   }
                 }
               }
-              peerConnections = {};
+              peerConnections = createSafeKeyStore();
 
               myPeerId = null;
               pendingPeerList = null;
               peers.clear();
               liveConnectionsCount = 0;
               for (const k of Object.keys(peerOpChains)) {
-                delete peerOpChains[k];
+                deleteSafeKeyStoreValue(peerOpChains, k);
               }
               await resetReceivingFragments();
               await resetSendingFragmentId();
@@ -1420,7 +1437,7 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  const temp = {};
+                  const temp = createSafeKeyStore();
                   const file_paths = clipContent
                     .split(',')
                     .filter(item => item.trim() !== '');
@@ -1784,15 +1801,15 @@ module.exports = async (inputData = null) => {
 
             peers.forEach(async pid => {
               if (pid === myPeerId) return; // skip self
-              if (!peerConnections[pid]) {
+              if (!getSafeKeyStoreValue(peerConnections, pid)) {
                 // Create new PeerConnection
                 const pc = await createPeerConnection(pid);
-                peerConnections[pid] = pc;
+                setSafeKeyStoreValue(peerConnections, pid, pc);
 
                 // Tie-breaker: only the "lower" ID makes the offer to avoid collisions
                 if (myPeerId < pid) {
                   const channel = await pc.createDataChannel('cliptext');
-                  dataChannels[pid] = channel;
+                  setSafeKeyStoreValue(dataChannels, pid, channel);
                   await setupDataChannel(pid, channel);
                   await createOffer(pid);
                 }
@@ -1810,41 +1827,51 @@ module.exports = async (inputData = null) => {
             );
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
-              delete peerOpChains[oldPid];
-              if (dataChannelHeartbeatTimers[oldPid]) {
-                clearInterval(dataChannelHeartbeatTimers[oldPid]);
-                delete dataChannelHeartbeatTimers[oldPid];
+              deleteSafeKeyStoreValue(peerOpChains, oldPid);
+              const timer = getSafeKeyStoreValue(
+                dataChannelHeartbeatTimers,
+                oldPid,
+              );
+              if (timer) {
+                clearInterval(timer);
+                deleteSafeKeyStoreValue(dataChannelHeartbeatTimers, oldPid);
               }
-              if (dataChannels[oldPid]) {
+              const dc = getSafeKeyStoreValue(dataChannels, oldPid);
+              if (dc) {
                 try {
-                  dataChannels[oldPid].onopen = null;
-                  dataChannels[oldPid].onmessage = null;
-                  dataChannels[oldPid].onclose = null;
-                  dataChannels[oldPid].onerror = null;
-                  dataChannels[oldPid].close();
+                  dc.onopen = null;
+                  dc.onmessage = null;
+                  dc.onclose = null;
+                  dc.onerror = null;
+                  dc.close();
                 } catch (err) {}
-                delete dataChannels[oldPid];
+                deleteSafeKeyStoreValue(dataChannels, oldPid);
               }
 
-              if (peerConnections[oldPid]) {
+              const pc = getSafeKeyStoreValue(peerConnections, oldPid);
+              if (pc) {
                 try {
-                  peerConnections[oldPid].onicecandidate = null;
-                  peerConnections[oldPid].ondatachannel = null;
-                  peerConnections[oldPid].onconnectionstatechange = null;
-                  peerConnections[oldPid].close();
+                  pc.onicecandidate = null;
+                  pc.ondatachannel = null;
+                  pc.onconnectionstatechange = null;
+                  pc.close();
                 } catch (err) {}
-                delete peerConnections[oldPid];
+                deleteSafeKeyStoreValue(peerConnections, oldPid);
               }
             }
             await syncLiveConnectionsCount();
           };
 
           const disposePeerConnection = async peerId => {
-            if (dataChannelHeartbeatTimers[peerId]) {
-              clearInterval(dataChannelHeartbeatTimers[peerId]);
-              delete dataChannelHeartbeatTimers[peerId];
+            const timer = getSafeKeyStoreValue(
+              dataChannelHeartbeatTimers,
+              peerId,
+            );
+            if (timer) {
+              clearInterval(timer);
+              deleteSafeKeyStoreValue(dataChannelHeartbeatTimers, peerId);
             }
-            const dc = dataChannels[peerId];
+            const dc = getSafeKeyStoreValue(dataChannels, peerId);
             if (dc) {
               try {
                 dc.onopen = null;
@@ -1855,9 +1882,9 @@ module.exports = async (inputData = null) => {
               } catch (e) {
                 // no-op
               }
-              delete dataChannels[peerId];
+              deleteSafeKeyStoreValue(dataChannels, peerId);
             }
-            const pc = peerConnections[peerId];
+            const pc = getSafeKeyStoreValue(peerConnections, peerId);
             if (pc) {
               try {
                 pc.onicecandidate = null;
@@ -1867,7 +1894,7 @@ module.exports = async (inputData = null) => {
               } catch (e) {
                 // no-op
               }
-              delete peerConnections[peerId];
+              deleteSafeKeyStoreValue(peerConnections, peerId);
             }
             await syncLiveConnectionsCount();
           };
@@ -1897,7 +1924,7 @@ module.exports = async (inputData = null) => {
 
             pc.ondatachannel = async event => {
               const channel = event.channel;
-              dataChannels[remotePeerId] = channel;
+              setSafeKeyStoreValue(dataChannels, remotePeerId, channel);
               await setupDataChannel(remotePeerId, channel);
             };
 
@@ -1915,7 +1942,7 @@ module.exports = async (inputData = null) => {
            * Create an SDP offer for remotePeerId and send via signaling.
            */
           const createOffer = async remotePeerId => {
-            const pc = peerConnections[remotePeerId];
+            const pc = getSafeKeyStoreValue(peerConnections, remotePeerId);
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
@@ -1931,18 +1958,24 @@ module.exports = async (inputData = null) => {
             if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
               return;
             }
-            if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+            if (
+              deadPc != null &&
+              getSafeKeyStoreValue(peerConnections, remotePeerId) !== deadPc
+            ) {
               return;
             }
             await runSerializedPeerOp(remotePeerId, async () => {
               if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
-              if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+              if (
+                deadPc != null &&
+                getSafeKeyStoreValue(peerConnections, remotePeerId) !== deadPc
+              ) {
                 return;
               }
               if (deadPc == null) {
-                const ch = dataChannels[remotePeerId];
+                const ch = getSafeKeyStoreValue(dataChannels, remotePeerId);
                 if (ch && ch.readyState === 'open') {
                   return;
                 }
@@ -1952,10 +1985,10 @@ module.exports = async (inputData = null) => {
                 return;
               }
               const newPc = await createPeerConnection(remotePeerId);
-              peerConnections[remotePeerId] = newPc;
+              setSafeKeyStoreValue(peerConnections, remotePeerId, newPc);
               if (myPeerId < remotePeerId) {
                 const channel = await newPc.createDataChannel('cliptext');
-                dataChannels[remotePeerId] = channel;
+                setSafeKeyStoreValue(dataChannels, remotePeerId, channel);
                 await setupDataChannel(remotePeerId, channel);
                 await createOffer(remotePeerId);
               }
@@ -1984,11 +2017,11 @@ module.exports = async (inputData = null) => {
               }
               // Full new offer (e.g. after peer recovery): must not apply on an
               // existing connected PC or datachannel counts diverge across devices.
-              if (peerConnections[fromPeerId]) {
+              if (getSafeKeyStoreValue(peerConnections, fromPeerId)) {
                 await disposePeerConnection(fromPeerId);
               }
               const pc = await createPeerConnection(fromPeerId);
-              peerConnections[fromPeerId] = pc;
+              setSafeKeyStoreValue(peerConnections, fromPeerId, pc);
 
               await pc.setRemoteDescription(new RTCSessionDescription(offer));
               const answer = await pc.createAnswer();
@@ -2007,7 +2040,7 @@ module.exports = async (inputData = null) => {
            * Handle incoming ANSWER from remote to our previously sent OFFER.
            */
           const handleAnswer = async (fromPeerId, answer) => {
-            const pc = peerConnections[fromPeerId];
+            const pc = getSafeKeyStoreValue(peerConnections, fromPeerId);
             if (!pc) {
               return;
             }
@@ -2025,7 +2058,7 @@ module.exports = async (inputData = null) => {
            * Handle incoming ICE candidate from remote peer.
            */
           const handleIceCandidate = async (fromPeerId, candidateData) => {
-            const pc = peerConnections[fromPeerId];
+            const pc = getSafeKeyStoreValue(peerConnections, fromPeerId);
             if (!pc) {
               return;
             }
@@ -2053,9 +2086,13 @@ module.exports = async (inputData = null) => {
             };
 
             channel.onclose = async () => {
-              if (dataChannelHeartbeatTimers[remotePeerId]) {
-                clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
-                delete dataChannelHeartbeatTimers[remotePeerId];
+              const timer = getSafeKeyStoreValue(
+                dataChannelHeartbeatTimers,
+                remotePeerId,
+              );
+              if (timer) {
+                clearInterval(timer);
+                deleteSafeKeyStoreValue(dataChannelHeartbeatTimers, remotePeerId);
               }
               await syncLiveConnectionsCount();
               await recoverPeerTransport(remotePeerId, null);
