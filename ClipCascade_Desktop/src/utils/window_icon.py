@@ -6,10 +6,36 @@ from PIL import Image, ImageDraw, ImageTk
 
 
 _WINDOW_ICON_ICO_PATH = None
+WINDOWS_APP_USER_MODEL_ID = "Darkaxt.ClipCascade"
+
+
+def set_windows_app_user_model_id():
+    """Give Windows taskbar grouping an app identity instead of python.exe."""
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            WINDOWS_APP_USER_MODEL_ID
+        )
+    except Exception:
+        pass
+
+
+def _resource_base_dir():
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parents[3]
+
+
+def _asset_path(*parts):
+    return _resource_base_dir().joinpath(*parts)
 
 
 def create_clipboard_icon():
-    """Create the clipboard artwork used by the tray and Tk windows."""
+    """Create the generated clipboard artwork used by the tray."""
     width, height = 64, 64
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
@@ -34,6 +60,28 @@ def create_clipboard_icon():
         draw.rectangle(clip_coords, fill=fill_color, outline=outline_color)
 
     return image
+
+
+def get_window_icon_image_path():
+    """Return the packaged app artwork used for Windows title bars."""
+    candidates = [
+        _asset_path("logo", "window-icon.png"),
+        _asset_path("assets", "window-icon.png"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def create_window_icon():
+    """Create the image used by Tk windows without changing the tray icon."""
+    icon_path = get_window_icon_image_path()
+    if icon_path is not None:
+        with Image.open(icon_path) as icon:
+            return icon.convert("RGBA").resize((64, 64), Image.Resampling.LANCZOS)
+
+    return create_clipboard_icon()
 
 
 def create_clipboard_icon_with_dot():
@@ -83,11 +131,25 @@ def get_clipboard_window_icon_ico_path():
     return _WINDOW_ICON_ICO_PATH
 
 
-def apply_clipboard_window_icon(window):
-    """Apply the shared clipboard artwork to a Tk window/taskbar entry."""
-    if sys.platform == "win32":
-        window.iconbitmap(default=get_clipboard_window_icon_ico_path())
+def get_window_icon_ico_path():
+    """Return the packaged Windows icon, falling back to the tray artwork."""
+    candidates = [
+        _asset_path("logo", "window-icon.ico"),
+        _asset_path("assets", "window-icon.ico"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return get_clipboard_window_icon_ico_path()
 
-    photo = ImageTk.PhotoImage(create_clipboard_icon())
+
+def apply_clipboard_window_icon(window):
+    """Apply the app artwork to a Tk window/taskbar entry."""
+    set_windows_app_user_model_id()
+
+    if sys.platform == "win32":
+        window.iconbitmap(default=get_window_icon_ico_path())
+
+    photo = ImageTk.PhotoImage(create_window_icon())
     window.iconphoto(True, photo)
     window._clipcascade_window_icon = photo

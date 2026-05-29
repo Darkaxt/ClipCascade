@@ -6,7 +6,7 @@ import time
 import os
 
 from utils.window_manager import center_window
-from utils.window_icon import apply_clipboard_window_icon
+from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -64,6 +64,7 @@ class LoginForm(tk.Tk):
         on_login_callback=None,
         on_quit_callback=None,
     ):
+        set_windows_app_user_model_id()
         super().__init__()
         self.config = config
         self.on_login_callback = on_login_callback

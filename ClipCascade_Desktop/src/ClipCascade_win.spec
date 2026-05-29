@@ -5,7 +5,10 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('../../logo/window-icon.ico', 'logo'),
+        ('../../logo/window-icon.png', 'logo'),
+    ],
     hiddenimports=['plyer.platforms.win.notification'],
     hookspath=[],
     hooksconfig={},
@@ -34,5 +37,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['../../logo/logo.ico'],
+    icon=['../../logo/window-icon.ico'],
 )

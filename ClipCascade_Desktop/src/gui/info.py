@@ -5,12 +5,13 @@ import gc
 import time
 
 from utils.window_manager import center_window
-from utils.window_icon import apply_clipboard_window_icon
+from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 from core.constants import *
 
 
 class CustomDialog(tk.Tk):
     def __init__(self, message, msg_type="info", timeout=None):
+        set_windows_app_user_model_id()
         super().__init__()
         self.message = message
         self.msg_type = msg_type.lower()

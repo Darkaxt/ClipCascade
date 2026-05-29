@@ -4,11 +4,12 @@ from tkinter import ttk
 
 from utils.activity_log import ActivityLog
 from utils.window_manager import center_window
-from utils.window_icon import apply_clipboard_window_icon
+from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 
 
 class ActivityWindow(tk.Tk):
     def __init__(self, activity_log: ActivityLog):
+        set_windows_app_user_model_id()
         super().__init__()
         self.activity_log = activity_log
 

@@ -11,7 +11,12 @@ from core.config import Config
 from gui.info import CustomDialog
 from gui.activity import ActivityWindow
 from utils.activity_log import ActivityLog
-from utils.window_icon import create_clipboard_icon, create_clipboard_icon_with_dot
+from utils.window_icon import (
+    apply_clipboard_window_icon,
+    create_clipboard_icon,
+    create_clipboard_icon_with_dot,
+    set_windows_app_user_model_id,
+)
 from core.constants import *
 
 if PLATFORM != WINDOWS:
@@ -50,7 +55,12 @@ class TaskbarPanel:
         self._activity_window_lock = threading.Lock()
         self._activity_window_active = False
 
+        set_windows_app_user_model_id()
         self.root = tk.Tk()
+        try:
+            apply_clipboard_window_icon(self.root)
+        except Exception:
+            pass
         self.root.withdraw()  # Hide the root window
 
         # Hide dock icon on macOS after creating tkinter window
