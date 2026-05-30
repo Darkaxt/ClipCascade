@@ -3,7 +3,9 @@ package com.darkaxt.clipcascade
 import android.content.ClipData
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
+import android.os.Parcel
 import android.os.UserHandle
 import android.util.Log
 import com.facebook.react.bridge.Arguments
@@ -17,6 +19,7 @@ import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ShizukuClipboardModule(
@@ -32,6 +35,11 @@ class ShizukuClipboardModule(
         private const val STATUS_CONNECTED = "connected"
         private const val STATUS_DISCONNECTED = "disconnected"
         private const val STATUS_UNSUPPORTED = "unsupported"
+
+        private const val ICLIPBOARD_DESCRIPTOR = "android.content.IClipboard"
+        private const val TRANSACTION_GET_PRIMARY_CLIP = IBinder.FIRST_CALL_TRANSACTION + 3
+        private const val SHELL_PACKAGE = "com.android.shell"
+        private const val DEFAULT_DEVICE_ID = 0
     }
 
     private val listening = AtomicBoolean(false)
@@ -119,7 +127,18 @@ class ShizukuClipboardModule(
             return
         }
 
-        lastSignature = ""
+        val initialEvent = try {
+            readClipboardEvent()
+        } catch (e: Throwable) {
+            Log.w(TAG, "Shizuku clipboard backend unsupported during startup", e)
+            emitStatusIfChanged(STATUS_UNSUPPORTED)
+            val result = buildStatusMap(STATUS_UNSUPPORTED)
+            result.putBoolean("started", false)
+            promise.resolve(result)
+            return
+        }
+
+        lastSignature = buildEventSignature(initialEvent)
         lastStatus = STATUS_CONNECTED
         pollThread = Thread {
             pollClipboardLoop()
@@ -174,7 +193,7 @@ class ShizukuClipboardModule(
             try {
                 val event = readClipboardEvent()
                 if (event != null) {
-                    val signature = "${event.getString("type")}:${event.getString("content")}"
+                    val signature = buildEventSignature(event)
                     if (signature != lastSignature) {
                         lastSignature = signature
                         sendEventToJS("onClipboardChange", event)
@@ -246,24 +265,68 @@ class ShizukuClipboardModule(
     private fun readClipboardEvent(): WritableMap? {
         val rawBinder = SystemServiceHelper.getSystemService(Context.CLIPBOARD_SERVICE)
             ?: throw IllegalStateException("Clipboard service unavailable")
+        val clip = invokeGetPrimaryClip(rawBinder) ?: return null
+        return clipDataToEvent(clip)
+    }
+
+    private fun invokeGetPrimaryClip(rawBinder: IBinder): ClipData? {
         val binder = ShizukuBinderWrapper(rawBinder)
+        return try {
+            invokeGetPrimaryClipViaBinder(binder)
+        } catch (binderError: Throwable) {
+            Log.w(TAG, "Direct Shizuku clipboard binder call failed; trying reflective fallback", binderError)
+            invokeGetPrimaryClipReflectively(binder)
+        }
+    }
+
+    private fun invokeGetPrimaryClipViaBinder(binder: IBinder): ClipData? {
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(ICLIPBOARD_DESCRIPTOR)
+            data.writeString(SHELL_PACKAGE)
+            data.writeString(null)
+            data.writeInt(currentUserId())
+            data.writeInt(DEFAULT_DEVICE_ID)
+
+            if (!binder.transact(TRANSACTION_GET_PRIMARY_CLIP, data, reply, 0)) {
+                throw NoSuchMethodException("IClipboard.getPrimaryClip transaction unavailable")
+            }
+            reply.readException()
+            readClipDataFromReply(reply)
+        } finally {
+            reply.recycle()
+            data.recycle()
+        }
+    }
+
+    private fun readClipDataFromReply(reply: Parcel): ClipData? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            reply.readTypedObject(ClipData.CREATOR)
+        } else {
+            @Suppress("DEPRECATION")
+            if (reply.readInt() != 0) ClipData.CREATOR.createFromParcel(reply) else null
+        }
+    }
+
+    private fun invokeGetPrimaryClipReflectively(binder: IBinder): ClipData? {
         val stubClass = Class.forName("android.content.IClipboard\$Stub")
         val asInterface = stubClass.getMethod("asInterface", IBinder::class.java)
         val clipboardService = asInterface.invoke(null, binder)
             ?: throw IllegalStateException("Clipboard interface unavailable")
-        val clip = invokeGetPrimaryClip(clipboardService) ?: return null
-        return clipDataToEvent(clip)
+        return invokeGetPrimaryClipReflectively(clipboardService)
     }
 
-    private fun invokeGetPrimaryClip(clipboardService: Any): ClipData? {
+    private fun invokeGetPrimaryClipReflectively(clipboardService: Any): ClipData? {
         val clipboardClass = Class.forName("android.content.IClipboard")
-        val methods = clipboardClass.methods
+        val methods = clipboardMethods(clipboardService, clipboardClass)
             .filter { it.name == "getPrimaryClip" }
             .sortedByDescending { it.parameterTypes.size }
         var lastError: Throwable? = null
 
         for (method in methods) {
             try {
+                method.isAccessible = true
                 val args = buildGetPrimaryClipArgs(method.parameterTypes)
                 return method.invoke(clipboardService, *args) as? ClipData
             } catch (e: InvocationTargetException) {
@@ -274,6 +337,17 @@ class ShizukuClipboardModule(
         }
 
         throw lastError ?: NoSuchMethodException("IClipboard.getPrimaryClip")
+    }
+
+    private fun clipboardMethods(clipboardService: Any, clipboardClass: Class<*>): List<Method> {
+        val allMethods = mutableListOf<Method>()
+        allMethods.addAll(clipboardService.javaClass.methods)
+        allMethods.addAll(clipboardService.javaClass.declaredMethods)
+        allMethods.addAll(clipboardClass.methods)
+        allMethods.addAll(clipboardClass.declaredMethods)
+        return allMethods.distinctBy { method ->
+            method.name + method.parameterTypes.joinToString(prefix = "(", postfix = ")") { it.name }
+        }
     }
 
     private fun buildGetPrimaryClipArgs(parameterTypes: Array<Class<*>>): Array<Any?> {
@@ -297,8 +371,25 @@ class ShizukuClipboardModule(
                     }
                 }
                 type == Boolean::class.javaPrimitiveType || type == java.lang.Boolean::class.java -> false
+                type.name == "android.content.AttributionSource" -> buildAttributionSource()
                 else -> null
             }
+        }
+    }
+
+    private fun buildAttributionSource(): Any? {
+        return try {
+            val builderClass = Class.forName("android.content.AttributionSource\$Builder")
+            val builder = builderClass
+                .getConstructor(Int::class.javaPrimitiveType)
+                .newInstance(android.os.Process.SHELL_UID)
+            builderClass
+                .getMethod("setPackageName", String::class.java)
+                .invoke(builder, "com.android.shell")
+            builderClass.getMethod("build").invoke(builder)
+        } catch (e: Throwable) {
+            Log.w(TAG, "Unable to build AttributionSource for clipboard call", e)
+            null
         }
     }
 
@@ -347,6 +438,13 @@ class ShizukuClipboardModule(
         params.putString("type", type)
         params.putString("backend", "shizuku")
         return params
+    }
+
+    private fun buildEventSignature(event: WritableMap?): String {
+        if (event == null) {
+            return ""
+        }
+        return "${event.getString("type")}:${event.getString("content")}"
     }
 
     private fun currentUserId(): Int {

@@ -14,7 +14,7 @@ class HeadlessTaskService : HeadlessJsTaskService() {
             HeadlessJsTaskConfig(
                 "Restart", // JS task name
                 Arguments.fromBundle(it), // Data passed to the task
-                5000, // Timeout for the task
+                60000, // Timeout for foreground service startup
                 true // Allow task to run in foreground
             )
         }

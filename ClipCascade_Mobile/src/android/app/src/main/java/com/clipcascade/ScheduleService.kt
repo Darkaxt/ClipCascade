@@ -14,6 +14,7 @@ import android.app.PendingIntent
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import android.util.Log
+import com.facebook.react.HeadlessJsTaskService
 
 
 class ScheduleService(context: Context, workerParams: WorkerParameters) : CoroutineWorker(context, workerParams) {
@@ -22,6 +23,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         private const val TAG = "ScheduleService"
         private const val NOTIFICATION_CHANNEL_ID = "clipcascade_foreground_service_stopped_running"
         private const val NOTIFICATION_ID = 1
+        private const val EVENT_SERVICE_INACTIVE = "SERVICE_INACTIVE"
 
         fun removeNotificationIfPresent(context: Context) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -49,8 +51,12 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 val bridgeData = AsyncStorageBridge(applicationContext)
                 if(enableForegroundService(bridgeData)) {
                     if(!foregroundServiceIsActive(bridgeData)) {
+                        Log.w(TAG, "Foreground JS service did not answer health ping; requesting headless restart")
+                        bridgeData.setValue("foreground_service_stopped_running", "true")
+                        requestHeadlessRestart()
                         showNotificationIfNotPresent()
                     } else {
+                        Log.i(TAG, "Foreground JS service answered health ping")
                         removeNotificationIfPresent(applicationContext)
                     }
                 }
@@ -63,6 +69,18 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         }
     }
 
+    private fun requestHeadlessRestart() {
+        try {
+            val intent = Intent(applicationContext, HeadlessTaskService::class.java).apply {
+                putExtra("event", EVENT_SERVICE_INACTIVE)
+            }
+            applicationContext.startService(intent)
+            HeadlessJsTaskService.acquireWakeLockNow(applicationContext)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request headless foreground service restart", e)
+        }
+    }
+
 
     fun enableForegroundService(bridgeData: AsyncStorageBridge) : Boolean {
         // Get websocket(foreground service) status (enabled/disabled)
@@ -71,13 +89,16 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
     
     suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {
         // check if foreground service is running
+        Log.i(TAG, "Probing foreground JS service")
         bridgeData.setValue("echo", "ping")
         repeat(80) { // 20000 ms
             delay(250) // Wait for 250 ms
             if (bridgeData.getValue("echo") == "pong") {
+                Log.i(TAG, "Foreground JS service probe succeeded")
                 return true
             }
         }
+        Log.w(TAG, "Foreground JS service probe timed out")
         return false
     }
 
