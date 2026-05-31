@@ -92,4 +92,20 @@ describe('headless foreground service restart', () => {
 
     expect(StartForegroundService).not.toHaveBeenCalled();
   });
+
+  test('restarts after an app update when monitoring was enabled', async () => {
+    getDataFromAsyncStorage.mockImplementation(async key => {
+      if (key === 'wsIsRunning') {
+        return 'true';
+      }
+      if (key === 'relaunch_on_boot') {
+        return 'false';
+      }
+      return null;
+    });
+
+    await runHeadlessTask({ event: 'PACKAGE_REPLACED' });
+
+    expect(StartForegroundService).toHaveBeenCalledTimes(1);
+  });
 });

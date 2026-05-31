@@ -53,7 +53,10 @@ module.exports = async data => {
       }
     };
 
-    if (data && data.event === 'SERVICE_INACTIVE') {
+    if (
+      data &&
+      (data.event === 'SERVICE_INACTIVE' || data.event === 'PACKAGE_REPLACED')
+    ) {
       await restartForegroundService();
     } else if (data && data.event === 'BOOT_COMPLETED') {
       const relaunch_on_boot = await getDataFromAsyncStorage(

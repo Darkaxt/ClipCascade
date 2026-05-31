@@ -37,6 +37,9 @@ export const getStartupServiceState = (
 export const shouldPersistStoppedStateAfterSessionValidation =
   startupServiceState => startupServiceState?.missedHeartbeat !== true;
 
+export const shouldAutoRecoverForegroundService = startupServiceState =>
+  startupServiceState?.missedHeartbeat === true;
+
 export const resolveClipboardLimit = (value, serverMaxSize) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed === 0) {

@@ -1,5 +1,6 @@
 import {
   clearClipboardEchoSuppression,
+  createLocalImageEchoGuard,
   setClipboardEchoSuppression,
   shouldSuppressClipboardEcho,
 } from '../ClipboardEchoSuppression';
@@ -103,5 +104,29 @@ describe('clipboard echo suppression', () => {
         now: 2000,
       }),
     ).resolves.toBe(false);
+  });
+
+  test('does not suppress text when the local image guard is armed', () => {
+    let currentTime = 1000;
+    const imageEchoGuard = createLocalImageEchoGuard({
+      now: () => currentTime,
+    });
+
+    imageEchoGuard.arm();
+
+    expect(imageEchoGuard.shouldSuppress('text')).toBe(false);
+    expect(imageEchoGuard.shouldSuppress('image')).toBe(true);
+  });
+
+  test('does not suppress stale image events after the guard expires', () => {
+    let currentTime = 1000;
+    const imageEchoGuard = createLocalImageEchoGuard({
+      now: () => currentTime,
+    });
+
+    imageEchoGuard.arm();
+    currentTime = 7000;
+
+    expect(imageEchoGuard.shouldSuppress('image')).toBe(false);
   });
 });

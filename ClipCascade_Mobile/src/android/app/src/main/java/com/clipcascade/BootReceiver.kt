@@ -7,14 +7,15 @@ import android.content.Intent
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
-            startHeadlessTask(context)
+        when (intent?.action) {
+            Intent.ACTION_BOOT_COMPLETED -> startHeadlessTask(context, "BOOT_COMPLETED")
+            Intent.ACTION_MY_PACKAGE_REPLACED -> startHeadlessTask(context, "PACKAGE_REPLACED")
         }
     }
 
-    private fun startHeadlessTask(context: Context) {
+    private fun startHeadlessTask(context: Context, event: String) {
         val headlessTaskIntent = Intent(context, HeadlessTaskService::class.java).apply {
-            putExtra("event", "BOOT_COMPLETED")
+            putExtra("event", event)
         }
         context.startService(headlessTaskIntent)
     }

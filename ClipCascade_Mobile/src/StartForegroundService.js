@@ -35,6 +35,7 @@ import {
 } from './ClipboardEventLog';
 import {
   clearClipboardEchoSuppression,
+  createLocalImageEchoGuard,
   setClipboardEchoSuppression,
   shouldSuppressClipboardEcho,
 } from './ClipboardEchoSuppression';
@@ -111,7 +112,7 @@ module.exports = async (inputData = null) => {
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
-        let block_image_once = false;
+        const localImageEchoGuard = createLocalImageEchoGuard();
         let files_in_memory = null;
         let websocket_status_notification_toggle = false;
         let p2pMsg = null; // p2p status message
@@ -356,7 +357,7 @@ module.exports = async (inputData = null) => {
         };
 
         const resetLocalClipboardEchoGuards = async () => {
-          block_image_once = false;
+          localImageEchoGuard.clear();
           await clearLocalClipboardEchoSuppression();
         };
 
@@ -925,7 +926,7 @@ module.exports = async (inputData = null) => {
                         Clipboard.setString(cb);
                       } else if (type_ === 'image') {
                         await setLocalClipboardEchoSuppression(type_, hcb);
-                        block_image_once = true;
+                        localImageEchoGuard.arm();
                         await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                           cb,
                         );
@@ -1093,8 +1094,7 @@ module.exports = async (inputData = null) => {
                   if (await newCB(hcb)) {
                     previous_clipboard_content_hash = hcb;
 
-                    if (block_image_once) {
-                      block_image_once = false;
+                    if (localImageEchoGuard.shouldSuppress(type_)) {
                       await appendActivityEvent({
                         direction: 'outbound',
                         type: type_,
@@ -1515,8 +1515,7 @@ module.exports = async (inputData = null) => {
                 if (await newCB(hcb)) {
                   previous_clipboard_content_hash = hcb;
 
-                  if (block_image_once) {
-                    block_image_once = false;
+                  if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
                       type: type_,
@@ -1817,7 +1816,7 @@ module.exports = async (inputData = null) => {
                   Clipboard.setString(cb);
                 } else if (type_ === 'image') {
                   await setLocalClipboardEchoSuppression(type_, hcb);
-                  block_image_once = true;
+                  localImageEchoGuard.arm();
                   await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                     cb,
                   );

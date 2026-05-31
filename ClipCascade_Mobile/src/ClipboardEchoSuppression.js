@@ -26,6 +26,35 @@ export const clearClipboardEchoSuppression = async ({ setValue }) => {
   await setValue(CLIPBOARD_ECHO_SUPPRESSION_UNTIL_KEY, '');
 };
 
+export const createLocalImageEchoGuard = ({
+  now = Date.now,
+  timeoutMs = CLIPBOARD_ECHO_SUPPRESSION_MS,
+} = {}) => {
+  let suppressImageUntil = 0;
+
+  return {
+    arm() {
+      suppressImageUntil = now() + timeoutMs;
+    },
+    clear() {
+      suppressImageUntil = 0;
+    },
+    shouldSuppress(type) {
+      if (type !== 'image') {
+        return false;
+      }
+
+      if (!suppressImageUntil || now() > suppressImageUntil) {
+        suppressImageUntil = 0;
+        return false;
+      }
+
+      suppressImageUntil = 0;
+      return true;
+    },
+  };
+};
+
 export const shouldSuppressClipboardEcho = async ({
   getValue,
   hashCB,

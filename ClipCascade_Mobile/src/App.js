@@ -51,6 +51,7 @@ import StartForegroundService from './StartForegroundService';
 import {
   getStartupServiceState,
   probeForegroundService,
+  shouldAutoRecoverForegroundService,
   shouldPersistStoppedStateAfterSessionValidation,
 } from './ServiceHealth';
 import {
@@ -286,7 +287,7 @@ export default function App() {
         // check if foreground service is running
         if (wsIsRunning_s === 'true') {
           setLoadingPageMessage('Checking foreground service...');
-          const foregroundServiceIsActive = await probeForegroundService({
+          let foregroundServiceIsActive = await probeForegroundService({
             setData: setDataInAsyncStorage,
             getData: getDataFromAsyncStorage,
           });
@@ -294,6 +295,18 @@ export default function App() {
             wsIsRunning_s,
             foregroundServiceIsActive,
           );
+          if (shouldAutoRecoverForegroundService(startupServiceState)) {
+            setLoadingPageMessage('Restarting foreground service...');
+            await onDisplayNotification();
+            foregroundServiceIsActive = await probeForegroundService({
+              setData: setDataInAsyncStorage,
+              getData: getDataFromAsyncStorage,
+            });
+            startupServiceState = getStartupServiceState(
+              wsIsRunning_s,
+              foregroundServiceIsActive,
+            );
+          }
           wsIsRunning_s = startupServiceState.wsIsRunningForUi;
           if (startupServiceState.statusMessage !== '') {
             await clearFiles();

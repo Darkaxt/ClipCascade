@@ -2,6 +2,7 @@ import {
   getStartupServiceState,
   resolveClipboardLimit,
   normalizeRuntimeSettings,
+  shouldAutoRecoverForegroundService,
   shouldPersistStoppedStateAfterSessionValidation,
 } from '../ServiceHealth';
 
@@ -14,6 +15,7 @@ describe('service health decisions', () => {
     expect(state.missedHeartbeat).toBe(true);
     expect(state.statusMessage).toContain('did not respond');
     expect(shouldPersistStoppedStateAfterSessionValidation(state)).toBe(false);
+    expect(shouldAutoRecoverForegroundService(state)).toBe(true);
   });
 
   test('keeps a running service marked as running after a successful heartbeat', () => {
@@ -24,6 +26,7 @@ describe('service health decisions', () => {
     expect(state.missedHeartbeat).toBe(false);
     expect(state.statusMessage).toBe('');
     expect(shouldPersistStoppedStateAfterSessionValidation(state)).toBe(true);
+    expect(shouldAutoRecoverForegroundService(state)).toBe(false);
   });
 });
 
