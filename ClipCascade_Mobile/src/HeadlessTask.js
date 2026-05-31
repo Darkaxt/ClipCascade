@@ -1,4 +1,5 @@
 import { NativeModules } from 'react-native';
+import notifee from '@notifee/react-native';
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
@@ -24,6 +25,17 @@ module.exports = async data => {
           'false',
         );
         await setDataInAsyncStorage('wsStatusMessage', '');
+        try {
+          await notifee.stopForegroundService();
+          console.log(
+            'ClipCascade HeadlessTask stopped stale foreground service',
+          );
+        } catch (error) {
+          console.warn(
+            'ClipCascade HeadlessTask failed to stop stale foreground service:',
+            error,
+          );
+        }
         const result = await StartForegroundService();
         if (result[0] === false) {
           console.warn(

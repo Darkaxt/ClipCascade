@@ -5,8 +5,15 @@ jest.mock('../AsyncStorageManagement', () => ({
 }));
 
 jest.mock('../StartForegroundService', () => jest.fn());
+jest.mock('@notifee/react-native', () => ({
+  __esModule: true,
+  default: {
+    stopForegroundService: jest.fn(async () => {}),
+  },
+}));
 
 const { NativeModules } = require('react-native');
+const notifee = require('@notifee/react-native').default;
 const {
   getDataFromAsyncStorage,
   setDataInAsyncStorage,
@@ -36,6 +43,23 @@ describe('headless foreground service restart', () => {
 
     expect(setDataInAsyncStorage).toHaveBeenCalledWith('wsStatusMessage', '');
     expect(StartForegroundService).toHaveBeenCalledTimes(1);
+  });
+
+  test('stops stale Notifee foreground service before watchdog restart', async () => {
+    getDataFromAsyncStorage.mockImplementation(async key => {
+      if (key === 'wsIsRunning') {
+        return 'true';
+      }
+      return null;
+    });
+
+    await runHeadlessTask({ event: 'SERVICE_INACTIVE' });
+
+    expect(notifee.stopForegroundService).toHaveBeenCalledTimes(1);
+    expect(StartForegroundService).toHaveBeenCalledTimes(1);
+    expect(
+      notifee.stopForegroundService.mock.invocationCallOrder[0],
+    ).toBeLessThan(StartForegroundService.mock.invocationCallOrder[0]);
   });
 
   test('clears stale inactive notification after a successful watchdog restart', async () => {
