@@ -48,10 +48,7 @@ import {
   getClipboardCaptureUnavailableMessage,
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
-import {
-  buildStompConnectHeaders,
-  buildWebSocketOptions,
-} from './AuthConfig';
+import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -59,6 +56,22 @@ function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
   DeviceEventEmitter.removeAllListeners('onClipboardChange');
   DeviceEventEmitter.removeAllListeners('onShizukuStatusChange');
+}
+
+function logServiceLifecycle(message, details = undefined) {
+  if (details === undefined) {
+    console.log(`ClipCascade ForegroundService: ${message}`);
+  } else {
+    console.log(`ClipCascade ForegroundService: ${message}`, details);
+  }
+}
+
+function warnServiceLifecycle(message, details = undefined) {
+  if (details === undefined) {
+    console.warn(`ClipCascade ForegroundService: ${message}`);
+  } else {
+    console.warn(`ClipCascade ForegroundService: ${message}`, details);
+  }
 }
 
 module.exports = async (inputData = null) => {
@@ -73,6 +86,9 @@ module.exports = async (inputData = null) => {
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
       try {
+        logServiceLifecycle('foreground callback started', {
+          notificationId: notification?.id,
+        });
         const { NativeBridgeModule, ClipboardListener, ShizukuClipboard } =
           NativeModules;
         const textEncoder = new TextEncoder();
@@ -137,6 +153,17 @@ module.exports = async (inputData = null) => {
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
           api_key,
         } = initialSettings;
+        logServiceLifecycle('loaded initial settings', {
+          server_mode,
+          cipher_enabled,
+          enable_image_sharing,
+          enable_file_sharing,
+          enable_shizuku_clipboard_backend,
+          enable_websocket_status_notification,
+          maxClipboardLimitStr,
+          hasApiKey: Boolean(api_key),
+          hasWebsocketUrl: Boolean(websocket_url),
+        });
 
         const maxsize = Number(maxsizeStr);
         let runtimeSettings = {
@@ -590,6 +617,9 @@ module.exports = async (inputData = null) => {
         };
 
         const handleShizukuUnavailable = async shizukuStatus => {
+          warnServiceLifecycle('Shizuku backend unavailable', {
+            shizukuStatus,
+          });
           const provider = resolveClipboardCaptureProvider({
             enableShizukuClipboardBackend: 'true',
             shizukuStatus,
@@ -632,10 +662,7 @@ module.exports = async (inputData = null) => {
           activeClipboardModule = null;
         };
 
-        const appendShizukuUriUnavailableEvent = async (
-          type_,
-          clipContent,
-        ) => {
+        const appendShizukuUriUnavailableEvent = async (type_, clipContent) => {
           await appendActivityEvent({
             direction: 'outbound',
             type: type_,
@@ -709,6 +736,11 @@ module.exports = async (inputData = null) => {
               runtimeSettings.enable_shizuku_clipboard_backend,
             shizukuStatus,
           });
+          logServiceLifecycle('clipboard capture provider resolved', {
+            backend: provider.backend,
+            shizukuStatus: provider.shizukuStatus,
+            automaticCaptureEnabled: provider.automaticCaptureEnabled,
+          });
 
           activeClipboardBackend = provider.backend;
           await setClipboardCaptureStatus(provider);
@@ -736,6 +768,10 @@ module.exports = async (inputData = null) => {
             typeof startResult === 'string'
               ? startResult
               : startResult?.status || provider.shizukuStatus;
+          logServiceLifecycle('clipboard capture native listener started', {
+            backend: provider.backend,
+            startStatus,
+          });
 
           if (provider.backend === 'shizuku' && startStatus !== 'connected') {
             await stopActiveClipboardCapture();
@@ -757,6 +793,9 @@ module.exports = async (inputData = null) => {
               'onShizukuStatusChange',
               async event => {
                 const nextStatus = event?.status || 'disconnected';
+                logServiceLifecycle('Shizuku status event', {
+                  nextStatus,
+                });
                 if (nextStatus !== 'connected') {
                   await stopActiveClipboardCapture();
                   await handleShizukuUnavailable(nextStatus);
@@ -826,6 +865,7 @@ module.exports = async (inputData = null) => {
             forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
             onConnect: async () => {
+              logServiceLifecycle('STOMP connected');
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
               toggle = false;
@@ -855,8 +895,10 @@ module.exports = async (inputData = null) => {
                       }
                     }
 
-                    const inboundMetadata =
-                      await getInboundClipboardMetadata(cb, type_);
+                    const inboundMetadata = await getInboundClipboardMetadata(
+                      cb,
+                      type_,
+                    );
                     // hash clipboard content
                     const hcb = await hashCB(cb);
                     const operationKey = `inbound:${type_}:${hcb}`;
@@ -934,10 +976,16 @@ module.exports = async (inputData = null) => {
               }
             },
             onDisconnect: async () => {
+              logServiceLifecycle('STOMP disconnected');
               await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
             },
             onStompError: async frame => {
+              warnServiceLifecycle('STOMP error', {
+                command: frame?.command,
+                headers: frame?.headers,
+                body: frame?.body,
+              });
               await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -945,6 +993,7 @@ module.exports = async (inputData = null) => {
               );
             },
             onWebSocketError: async event => {
+              warnServiceLifecycle('WebSocket error', event);
               await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -952,6 +1001,10 @@ module.exports = async (inputData = null) => {
               );
             },
             onWebSocketClose: async event => {
+              warnServiceLifecycle('WebSocket closed', {
+                code: event?.code,
+                reason: event?.reason,
+              });
               await resetLocalClipboardEchoGuards();
               const reason = event?.reason || 'closed by client';
               await setDataInAsyncStorage(
@@ -986,9 +1039,7 @@ module.exports = async (inputData = null) => {
             let outboundMetadata = {};
             try {
               await clearFiles();
-              if (
-                await shouldSuppressLocalClipboardEcho(type_, clipContent)
-              ) {
+              if (await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
                 return;
               }
 
@@ -1133,6 +1184,7 @@ module.exports = async (inputData = null) => {
               try {
                 await stompClient.deactivate();
               } catch (e) {
+                warnServiceLifecycle('STOMP deactivate failed during stop', e);
                 // no-op
               }
             }
@@ -1412,9 +1464,7 @@ module.exports = async (inputData = null) => {
             let outboundMetadata = {};
             try {
               await clearFiles();
-              if (
-                await shouldSuppressLocalClipboardEcho(type_, clipContent)
-              ) {
+              if (await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
                 return;
               }
 
@@ -2103,7 +2153,10 @@ module.exports = async (inputData = null) => {
               );
               if (timer) {
                 clearInterval(timer);
-                deleteSafeKeyStoreValue(dataChannelHeartbeatTimers, remotePeerId);
+                deleteSafeKeyStoreValue(
+                  dataChannelHeartbeatTimers,
+                  remotePeerId,
+                );
               }
               await syncLiveConnectionsCount();
               await recoverPeerTransport(remotePeerId, null);
@@ -2170,6 +2223,7 @@ module.exports = async (inputData = null) => {
               const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
               latest = JSON.parse(json);
             } catch (error) {
+              warnServiceLifecycle('Service health polling delayed', error);
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 '⚠️ Service health polling delayed: ' + error,
@@ -2201,6 +2255,9 @@ module.exports = async (inputData = null) => {
 
             // check if wsIsRunning is true or else terminate the service
             if (latest.wsIsRunning !== 'true') {
+              logServiceLifecycle(
+                'wsIsRunning disabled; stopping foreground loop',
+              );
               await stopServices();
               await setDataInAsyncStorage(
                 'wsForegroundServiceTerminated',
@@ -2220,9 +2277,14 @@ module.exports = async (inputData = null) => {
             // check if ping initiated
             if (latest.echo === 'ping') {
               await setDataInAsyncStorage('echo', 'pong');
+              logServiceLifecycle('watchdog ping answered');
               try {
                 NativeBridgeModule.clearInactiveServiceNotification();
               } catch (error) {
+                warnServiceLifecycle(
+                  'failed to clear inactive service notification',
+                  error,
+                );
                 // Clearing a stale watchdog notification must not stop syncing.
               }
             }
@@ -2271,6 +2333,7 @@ module.exports = async (inputData = null) => {
 
         await pollFlagsLoop();
       } catch (error) {
+        warnServiceLifecycle('foreground callback failed', error);
         await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
         await setDataInAsyncStorage('wsIsRunning', 'false');
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
@@ -2281,6 +2344,7 @@ module.exports = async (inputData = null) => {
   });
 
   try {
+    logServiceLifecycle('displaying foreground notification');
     // Create a notification channel for the foreground service
     const channelId = await notifee.createChannel({
       id: 'ClipCascade',
@@ -2318,8 +2382,10 @@ module.exports = async (inputData = null) => {
       importance: AndroidImportance.HIGH,
     });
 
+    logServiceLifecycle('foreground notification displayed');
     return [true, 'Foreground service is running'];
   } catch (error) {
+    warnServiceLifecycle('failed to display foreground notification', error);
     return [false, error];
   }
 };

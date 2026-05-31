@@ -24,10 +24,14 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         private const val NOTIFICATION_CHANNEL_ID = "clipcascade_foreground_service_stopped_running"
         private const val NOTIFICATION_ID = 1
         private const val EVENT_SERVICE_INACTIVE = "SERVICE_INACTIVE"
+        private const val DEFAULT_PROBE_ATTEMPTS = 80
+        private const val RESTART_PROBE_ATTEMPTS = 240
+        private const val PROBE_INTERVAL_MS = 250L
 
         fun removeNotificationIfPresent(context: Context) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(NOTIFICATION_ID)
+            Log.i(TAG, "Inactive service notification cleared")
         }
 
         fun hasNotificationPermission(context: Context): Boolean {
@@ -47,20 +51,41 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
 
         // show notification if foreground service is not running
         try {
-            if(hasNotificationPermission(applicationContext)) {
-                val bridgeData = AsyncStorageBridge(applicationContext)
-                if(enableForegroundService(bridgeData)) {
-                    if(!foregroundServiceIsActive(bridgeData)) {
-                        Log.w(TAG, "Foreground JS service did not answer health ping; requesting headless restart")
-                        bridgeData.setValue("foreground_service_stopped_running", "true")
-                        requestHeadlessRestart()
-                        showNotificationIfNotPresent()
-                    } else {
-                        Log.i(TAG, "Foreground JS service answered health ping")
-                        removeNotificationIfPresent(applicationContext)
-                    }
-                }
+            Log.i(TAG, "Watchdog worker started")
+            if(!hasNotificationPermission(applicationContext)) {
+                Log.w(TAG, "Notification permission is missing; watchdog cannot alert")
+                return Result.success()
             }
+
+            val bridgeData = AsyncStorageBridge(applicationContext)
+            if(!enableForegroundService(bridgeData)) {
+                Log.i(TAG, "Foreground service preference is disabled; skipping watchdog probe")
+                removeNotificationIfPresent(applicationContext)
+                return Result.success()
+            }
+
+            if(foregroundServiceIsActive(bridgeData, "initial")) {
+                Log.i(TAG, "Foreground JS service answered initial health ping")
+                bridgeData.setValue("foreground_service_stopped_running", "false")
+                removeNotificationIfPresent(applicationContext)
+                return Result.success()
+            }
+
+            Log.w(TAG, "Foreground JS service missed initial health ping; requesting headless restart")
+            bridgeData.setValue("foreground_service_stopped_running", "true")
+            if (requestHeadlessRestart()) {
+                if(foregroundServiceIsActive(bridgeData, "post-restart", RESTART_PROBE_ATTEMPTS)) {
+                    Log.i(TAG, "Foreground JS service answered post-restart health ping")
+                    bridgeData.setValue("foreground_service_stopped_running", "false")
+                    removeNotificationIfPresent(applicationContext)
+                    return Result.success()
+                }
+                Log.w(TAG, "Foreground JS service still inactive after headless restart probe")
+            } else {
+                Log.w(TAG, "Headless restart request failed before post-restart probe")
+            }
+
+            showNotificationIfNotPresent()
 
             return Result.success()
         } catch (e: Exception) {
@@ -69,36 +94,51 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         }
     }
 
-    private fun requestHeadlessRestart() {
+    private fun requestHeadlessRestart(): Boolean {
         try {
             val intent = Intent(applicationContext, HeadlessTaskService::class.java).apply {
                 putExtra("event", EVENT_SERVICE_INACTIVE)
             }
-            applicationContext.startService(intent)
+            val componentName = applicationContext.startService(intent)
             HeadlessJsTaskService.acquireWakeLockNow(applicationContext)
+            Log.i(TAG, "Headless restart service requested: $componentName")
+            return componentName != null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request headless foreground service restart", e)
+            return false
         }
     }
 
 
     fun enableForegroundService(bridgeData: AsyncStorageBridge) : Boolean {
         // Get websocket(foreground service) status (enabled/disabled)
-        return bridgeData.getValue("wsIsRunning")?.toBoolean() ?: false 
+        val rawValue = bridgeData.getValue("wsIsRunning")
+        val enabled = rawValue?.toBoolean() ?: false
+        Log.i(TAG, "wsIsRunning raw=$rawValue enabled=$enabled")
+        return enabled
     } 
     
-    suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {
+    suspend fun foregroundServiceIsActive(
+        bridgeData: AsyncStorageBridge,
+        label: String = "probe",
+        attempts: Int = DEFAULT_PROBE_ATTEMPTS
+    ) : Boolean {
         // check if foreground service is running
-        Log.i(TAG, "Probing foreground JS service")
-        bridgeData.setValue("echo", "ping")
-        repeat(80) { // 20000 ms
-            delay(250) // Wait for 250 ms
+        val previousEcho = bridgeData.getValue("echo")
+        Log.i(TAG, "Probing foreground JS service label=$label attempts=$attempts previousEcho=$previousEcho")
+        val pingWritten = bridgeData.setValue("echo", "ping")
+        Log.i(TAG, "Foreground JS service probe ping write label=$label success=$pingWritten")
+        val startedAt = System.currentTimeMillis()
+        repeat(attempts) { attempt ->
+            delay(PROBE_INTERVAL_MS)
             if (bridgeData.getValue("echo") == "pong") {
-                Log.i(TAG, "Foreground JS service probe succeeded")
+                val elapsedMs = System.currentTimeMillis() - startedAt
+                Log.i(TAG, "Foreground JS service probe succeeded label=$label attempt=${attempt + 1} elapsedMs=$elapsedMs")
                 return true
             }
         }
-        Log.w(TAG, "Foreground JS service probe timed out")
+        val finalEcho = bridgeData.getValue("echo")
+        Log.w(TAG, "Foreground JS service probe timed out label=$label attempts=$attempts finalEcho=$finalEcho")
         return false
     }
 
@@ -136,6 +176,9 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 .build()
 
             notificationManager.notify(NOTIFICATION_ID, notification)
+            Log.w(TAG, "Inactive service notification posted")
+        } else {
+            Log.i(TAG, "Inactive service notification already active")
         }
     }
 

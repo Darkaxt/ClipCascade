@@ -6,6 +6,7 @@ jest.mock('../AsyncStorageManagement', () => ({
 
 jest.mock('../StartForegroundService', () => jest.fn());
 
+const { NativeModules } = require('react-native');
 const {
   getDataFromAsyncStorage,
   setDataInAsyncStorage,
@@ -17,6 +18,9 @@ const runHeadlessTask = require('../HeadlessTask');
 describe('headless foreground service restart', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    NativeModules.NativeBridgeModule = {
+      clearInactiveServiceNotification: jest.fn(),
+    };
     StartForegroundService.mockResolvedValue([true]);
   });
 
@@ -32,6 +36,21 @@ describe('headless foreground service restart', () => {
 
     expect(setDataInAsyncStorage).toHaveBeenCalledWith('wsStatusMessage', '');
     expect(StartForegroundService).toHaveBeenCalledTimes(1);
+  });
+
+  test('clears stale inactive notification after a successful watchdog restart', async () => {
+    getDataFromAsyncStorage.mockImplementation(async key => {
+      if (key === 'wsIsRunning') {
+        return 'true';
+      }
+      return null;
+    });
+
+    await runHeadlessTask({ event: 'SERVICE_INACTIVE' });
+
+    expect(
+      NativeModules.NativeBridgeModule.clearInactiveServiceNotification,
+    ).toHaveBeenCalledTimes(1);
   });
 
   test('keeps boot restart gated by relaunch on boot', async () => {
