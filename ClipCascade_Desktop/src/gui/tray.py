@@ -1,5 +1,6 @@
 import math
 import os
+import queue
 import threading
 import time
 import tkinter as tk
@@ -54,22 +55,11 @@ class TaskbarPanel:
         self.previous_stats_items = None
         self._activity_window_lock = threading.Lock()
         self._activity_window_active = False
+        self._tk_tasks = queue.Queue()
+        self._tk_ready = threading.Event()
+        self.root = None
 
-        set_windows_app_user_model_id()
-        self.root = tk.Tk()
-        try:
-            apply_clipboard_window_icon(self.root)
-        except Exception:
-            pass
-        self.root.withdraw()  # Hide the root window
-
-        # Hide dock icon on macOS after creating tkinter window
-        if PLATFORM == MACOS:
-            try:
-                from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-                NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-            except ImportError:
-                pass
+        self._start_tk_loop()
 
         # Initial state: Connected
         self.is_connected = True
@@ -83,6 +73,62 @@ class TaskbarPanel:
 
     def run(self):
         self.icon.run()
+
+    def _start_tk_loop(self):
+        threading.Thread(target=self._run_tk_loop, daemon=True).start()
+        self._tk_ready.wait(timeout=5)
+
+    def _run_tk_loop(self):
+        try:
+            set_windows_app_user_model_id()
+            self.root = tk.Tk()
+            try:
+                apply_clipboard_window_icon(self.root)
+            except Exception:
+                pass
+            self.root.withdraw()  # Hide the root window
+
+            # Hide dock icon on macOS after creating tkinter window
+            if PLATFORM == MACOS:
+                try:
+                    from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+                    NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+                except ImportError:
+                    pass
+
+            self._tk_ready.set()
+            self._drain_tk_tasks()
+            self.root.mainloop()
+        except Exception as e:
+            logging.error(f"Failed to start Tk UI loop: {e}")
+            self._tk_ready.set()
+
+    def _drain_tk_tasks(self):
+        while True:
+            try:
+                task = self._tk_tasks.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                task()
+            except Exception as e:
+                logging.error(f"Failed to run Tk UI task: {e}")
+        if self.root is not None:
+            self.root.after(50, self._drain_tk_tasks)
+
+    def _schedule_tk_task(self, task):
+        if self.root is None:
+            return False
+        self._tk_tasks.put(task)
+        return True
+
+    def _stop_tk_loop(self):
+        def stop():
+            if self.root is not None:
+                self.root.quit()
+                self.root.destroy()
+
+        self._schedule_tk_task(stop)
 
     def create_menu(self, item_: tuple = None):
         """Create the menu for the tray icon.
@@ -278,19 +324,26 @@ class TaskbarPanel:
                 return
             self._activity_window_active = True
 
-        def run_window():
+        def mark_inactive():
+            with self._activity_window_lock:
+                self._activity_window_active = False
+
+        def open_window():
             try:
-                ActivityWindow(self.activity_log).mainloop()
+                ActivityWindow(
+                    self.activity_log,
+                    master=self.root,
+                    on_close=mark_inactive,
+                )
             except Exception as e:
+                mark_inactive()
                 CustomDialog(
                     f"Failed to open activity window.\nError: {e}",
                     msg_type="error",
                 ).mainloop()
-            finally:
-                with self._activity_window_lock:
-                    self._activity_window_active = False
 
-        threading.Thread(target=run_window, daemon=True).start()
+        if not self._schedule_tk_task(open_window):
+            mark_inactive()
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
@@ -360,7 +413,7 @@ class TaskbarPanel:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
             self.icon.stop()
-            self.root.quit()
+            self._stop_tk_loop()
         except Exception as e:
             CustomDialog(
                 f"An error occurred while logging off: {e}", msg_type="error"
@@ -368,4 +421,4 @@ class TaskbarPanel:
 
     def _on_quit(self, icon, item):
         self.icon.stop()
-        self.root.quit()
+        self._stop_tk_loop()

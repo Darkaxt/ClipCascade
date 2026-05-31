@@ -7,11 +7,13 @@ from utils.window_manager import center_window
 from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 
 
-class ActivityWindow(tk.Tk):
-    def __init__(self, activity_log: ActivityLog):
+class ActivityWindow(tk.Toplevel):
+    def __init__(self, activity_log: ActivityLog, master=None, on_close=None):
         set_windows_app_user_model_id()
-        super().__init__()
+        super().__init__(master)
         self.activity_log = activity_log
+        self.on_close = on_close
+        self._closed = False
 
         self.title("ClipCascade Activity")
         try:
@@ -30,6 +32,7 @@ class ActivityWindow(tk.Tk):
 
         self._build()
         self.refresh()
+        self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(1000, self._refresh_loop)
 
     def _build(self):
@@ -46,7 +49,7 @@ class ActivityWindow(tk.Tk):
         actions.pack(side="right")
         ttk.Button(actions, text="Refresh", command=self.refresh).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Clear", command=self._clear).pack(side="left", padx=(0, 8))
-        ttk.Button(actions, text="Close", command=self.destroy).pack(side="left")
+        ttk.Button(actions, text="Close", command=self.close).pack(side="left")
 
         table_frame = ttk.Frame(container)
         table_frame.pack(fill="both", expand=True)
@@ -127,3 +130,14 @@ class ActivityWindow(tk.Tk):
         else:
             if not self.empty_label.winfo_ismapped():
                 self.empty_label.pack(pady=(10, 0))
+
+    def close(self):
+        if self._closed:
+            return
+
+        self._closed = True
+        try:
+            self.destroy()
+        finally:
+            if self.on_close:
+                self.on_close()

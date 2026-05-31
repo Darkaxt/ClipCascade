@@ -8,19 +8,19 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
 
-Android version `3.2.0.9` means upstream ClipCascade `3.2.0` plus Darkaxt fork revision `.9`. Windows and server remain at `3.2.0.5` because this release only changes the Android APK.
+Android version `3.2.0.9` means upstream ClipCascade `3.2.0` plus Darkaxt fork revision `.9`. Windows version `3.2.0.10` includes the current desktop tray fix. The server remains at `3.2.0.5`.
 
 ### Latest Darkaxt Release
 
-Download release `3.2.0.9` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.9).
+Download release `3.2.0.10` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.10).
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `app-release.apk` | `28F27323022A382A6E808A207BCE1E5A87F23CF5BC7C69CA2255EBFDA5EC8702` |
-| `ClipCascade.exe` | `58D24E0CA1A72E3AF48214A2EB6DFF2C275AC177D8D8EFB3C4BD2E7707258DCE` |
+| `app-release.apk` | `F3A8E9FEA43D3391912CB20C74F9847A5FD8B613CC85792CCDF02CC06C70D878` |
+| `ClipCascade.exe` | `79B93735AE0B157F688B5919B34FD6058D2053A24570CD46D6CFCDBD98D9512B` |
 | `ClipCascade-Server-JRE_21.jar` | `012B25A9BBCAF32EDAD73E56DF0D0657F478BAA95DF04E808D417421F3B3049E` |
 
-Release `3.2.0.9` auto-recovers Android monitoring after app updates or app-open foreground-service misses, and fixes Android image echo suppression so a stale inbound-image guard cannot suppress later real text copies such as OTPs. Release `3.2.0.7` makes watchdog recovery restart the stale Android foreground-service shell before starting monitoring again, so a stuck JS monitoring loop can recover without opening the app. Release `3.2.0.6` added Android watchdog diagnostics and clears stale inactive-service alerts only after the foreground JS service actually responds. Release `3.2.0.5` included API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
+Release `3.2.0.10` fixes the Windows activity viewer lifecycle so closing the log/activity window does not orphan the process without a visible tray icon. Release `3.2.0.9` auto-recovers Android monitoring after app updates or app-open foreground-service misses, and fixes Android image echo suppression so a stale inbound-image guard cannot suppress later real text copies such as OTPs. Release `3.2.0.7` makes watchdog recovery restart the stale Android foreground-service shell before starting monitoring again, so a stuck JS monitoring loop can recover without opening the app. Release `3.2.0.6` added Android watchdog diagnostics and clears stale inactive-service alerts only after the foreground JS service actually responds. Release `3.2.0.5` included API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
 
 Android resilience changes in this fork:
 

@@ -2,6 +2,7 @@ import sys
 import unittest
 import inspect
 import importlib.util
+import tkinter as tk
 from pathlib import Path
 
 
@@ -102,6 +103,23 @@ class WindowIconTest(unittest.TestCase):
 
         self.assertIn("apply_clipboard_window_icon(self)", activity_source)
         self.assertIn("apply_clipboard_window_icon(self)", dialog_source)
+
+    def test_activity_window_is_child_window_not_second_tk_root(self):
+        ActivityWindow = load_class_from_path(
+            "clipcascade_activity_window_lifecycle",
+            Path("gui") / "activity.py",
+            "ActivityWindow",
+        )
+
+        self.assertTrue(issubclass(ActivityWindow, tk.Toplevel))
+        self.assertFalse(issubclass(ActivityWindow, tk.Tk))
+
+    def test_activity_window_close_does_not_start_nested_mainloop(self):
+        tray_source = (SRC_DIR / "gui" / "tray.py").read_text(encoding="utf-8")
+        activity_source = (SRC_DIR / "gui" / "activity.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("ActivityWindow(self.activity_log).mainloop()", tray_source)
+        self.assertIn('self.protocol("WM_DELETE_WINDOW", self.close)', activity_source)
 
 
 if __name__ == "__main__":
