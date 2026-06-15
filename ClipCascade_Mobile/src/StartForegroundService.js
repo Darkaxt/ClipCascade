@@ -39,6 +39,7 @@ import {
   setClipboardEchoSuppression,
   shouldSuppressClipboardEcho,
 } from './ClipboardEchoSuppression';
+import { createClipboardDuplicateSuppression } from './ClipboardDuplicateSuppression';
 import {
   createSafeKeyStore,
   deleteSafeKeyStoreValue,
@@ -50,6 +51,11 @@ import {
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
+
+const FOREGROUND_NOTIFICATION_CHANNEL_ID = 'ClipCascade_Foreground_Service';
+const FOREGROUND_NOTIFICATION_ID =
+  'ClipCascade_Foreground_Service_Notification_Id';
+const FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS = 60000;
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -72,6 +78,61 @@ function warnServiceLifecycle(message, details = undefined) {
     console.warn(`ClipCascade ForegroundService: ${message}`);
   } else {
     console.warn(`ClipCascade ForegroundService: ${message}`, details);
+  }
+}
+
+async function createForegroundNotificationChannel() {
+  return notifee.createChannel({
+    id: FOREGROUND_NOTIFICATION_CHANNEL_ID,
+    name: 'ClipCascade Monitor',
+    importance: AndroidImportance.DEFAULT,
+    sound: '',
+  });
+}
+
+async function displayForegroundServiceNotification() {
+  const channelId = await createForegroundNotificationChannel();
+
+  await notifee.displayNotification({
+    id: FOREGROUND_NOTIFICATION_ID,
+    title: 'ClipCascade',
+    body: 'Monitoring clipboard sync',
+    android: {
+      channelId,
+      asForegroundService: true,
+      smallIcon: 'ic_small_icon',
+      color: 'gray',
+      ongoing: true,
+      pressAction: {
+        id: 'default',
+        launchActivity: 'default',
+      },
+    },
+  });
+}
+
+async function foregroundNotificationIsDisplayed() {
+  if (typeof notifee.getDisplayedNotifications !== 'function') {
+    return true;
+  }
+
+  const notifications = await notifee.getDisplayedNotifications();
+  return notifications.some(
+    item =>
+      item?.id === FOREGROUND_NOTIFICATION_ID ||
+      item?.notification?.id === FOREGROUND_NOTIFICATION_ID,
+  );
+}
+
+async function recoverForegroundNotificationIfMissing() {
+  try {
+    if (await foregroundNotificationIsDisplayed()) {
+      return;
+    }
+    warnServiceLifecycle('foreground notification missing; reposting');
+    await displayForegroundServiceNotification();
+  } catch (error) {
+    warnServiceLifecycle('failed to verify foreground notification', error);
   }
 }
 
@@ -110,7 +171,8 @@ module.exports = async (inputData = null) => {
           // no-op
         }
 
-        let previous_clipboard_content_hash = '';
+        const clipboardDuplicateSuppression =
+          createClipboardDuplicateSuppression();
         let toggle = false; // p2s toggle
         const localImageEchoGuard = createLocalImageEchoGuard();
         let files_in_memory = null;
@@ -125,6 +187,8 @@ module.exports = async (inputData = null) => {
         let stopServicesP2P = null;
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
+        let nextForegroundNotificationCheckAt =
+          Date.now() + FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS;
 
         // get data from async storage
         const initialSettings = await getMultipleDataFromAsyncStorage([
@@ -221,7 +285,7 @@ module.exports = async (inputData = null) => {
 
         //check if clipboard content changed
         const newCB = async hcb => {
-          return previous_clipboard_content_hash !== hcb;
+          return clipboardDuplicateSuppression.accept(hcb);
         };
 
         const calculateBase64DecodedLength = async base64Str => {
@@ -916,8 +980,6 @@ module.exports = async (inputData = null) => {
                       operationKey,
                     });
 
-                    previous_clipboard_content_hash = hcb;
-
                     // validate clipboard size
                     if (await validateClipboardSize(cb, type_, 'Inbound')) {
                       // set clipboard content
@@ -1092,8 +1154,6 @@ module.exports = async (inputData = null) => {
                   // clipboad content hash
                   const hcb = await hashCB(clipContent);
                   if (await newCB(hcb)) {
-                    previous_clipboard_content_hash = hcb;
-
                     if (localImageEchoGuard.shouldSuppress(type_)) {
                       await appendActivityEvent({
                         direction: 'outbound',
@@ -1513,8 +1573,6 @@ module.exports = async (inputData = null) => {
                 // clipboad content hash
                 const hcb = await hashCB(clipContent);
                 if (await newCB(hcb)) {
-                  previous_clipboard_content_hash = hcb;
-
                   if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
@@ -1804,8 +1862,6 @@ module.exports = async (inputData = null) => {
                 metadata: inboundMetadata,
                 operationKey,
               });
-
-              previous_clipboard_content_hash = hcb;
 
               await resetReceivingFragments();
               // validate clipboard size
@@ -2288,6 +2344,12 @@ module.exports = async (inputData = null) => {
               }
             }
 
+            if (Date.now() >= nextForegroundNotificationCheckAt) {
+              nextForegroundNotificationCheckAt =
+                Date.now() + FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS;
+              await recoverForegroundNotificationIfMissing();
+            }
+
             // check if user wants to download files
             if (
               latest.downloadFiles === 'true' &&
@@ -2344,28 +2406,7 @@ module.exports = async (inputData = null) => {
 
   try {
     logServiceLifecycle('displaying foreground notification');
-    // Create a notification channel for the foreground service
-    const channelId = await notifee.createChannel({
-      id: 'ClipCascade',
-      name: 'ClipCascade Monitor',
-      importance: AndroidImportance.LOW,
-      sound: '',
-    });
-
-    // Display a notification to start the foreground service
-    await notifee.displayNotification({
-      title: 'ClipCascade',
-      android: {
-        channelId,
-        asForegroundService: true,
-        smallIcon: 'ic_small_icon',
-        color: 'gray',
-        pressAction: {
-          id: 'default',
-          launchActivity: 'default',
-        },
-      },
-    });
+    await displayForegroundServiceNotification();
 
     // Create a notification channel for download progress
     await notifee.createChannel({

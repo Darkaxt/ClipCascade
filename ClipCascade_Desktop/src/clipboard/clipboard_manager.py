@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+import time
 import xxhash
 
 
@@ -36,7 +37,8 @@ class ClipboardManager:
         self.config = config
         self.activity_log = activity_log
         self.transport = transport
-        self.previous_clipboard_hash = 0
+        self.previous_clipboard_hash = None
+        self.previous_clipboard_hash_at = 0.0
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
 
@@ -125,20 +127,38 @@ class ClipboardManager:
 
         return True
 
-    def has_clipboard_changed(self, payload: str) -> bool:
+    def reset_duplicate_detector(self):
+        self.previous_clipboard_hash = None
+        self.previous_clipboard_hash_at = 0.0
+
+    def has_clipboard_changed(self, payload: str, now: float = None) -> bool:
         """
         Check if the clipboard content has changed by comparing the current hash
-        with the previous clipboard hash.
+        with the previous clipboard hash. Identical payloads are suppressed only
+        for a short window to absorb immediate duplicate OS clipboard events and
+        echo callbacks.
 
         Parameters:
         - payload: The current clipboard content.
+        - now: Optional monotonic timestamp for tests.
 
         Returns:
         - True if the clipboard content has changed, False otherwise.
         """
+        if now is None:
+            now = time.monotonic()
+
         current_clipboard_hash = ClipboardManager.hash_clipboard(payload)
-        if current_clipboard_hash != self.previous_clipboard_hash:
+        duplicate_window_elapsed = (
+            now - self.previous_clipboard_hash_at
+            >= DUPLICATE_CLIPBOARD_SUPPRESSION_WINDOW_SEC
+        )
+        if (
+            current_clipboard_hash != self.previous_clipboard_hash
+            or duplicate_window_elapsed
+        ):
             self.previous_clipboard_hash = current_clipboard_hash
+            self.previous_clipboard_hash_at = now
             return True
         return False
 

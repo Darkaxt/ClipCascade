@@ -236,7 +236,7 @@ class STOMPManager(WSInterface):
 
     def disconnect(self):
         try:
-            self.clipboard_manager.previous_clipboard_hash = 0
+            self.clipboard_manager.reset_duplicate_detector()
             self.disconnected = True
             self.first_conn_lost = True
             try:

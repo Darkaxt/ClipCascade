@@ -4,6 +4,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -52,6 +53,22 @@ class ClipboardManagerImageEncodingTest(unittest.TestCase):
         decoded = Image.open(io.BytesIO(payload))
         decoded.load()
         self.assertEqual(decoded.size, original.size)
+
+
+class ClipboardManagerDuplicateSuppressionTest(unittest.TestCase):
+    def test_immediate_duplicate_payload_is_suppressed(self):
+        manager = ClipboardManager(types.SimpleNamespace(data={}))
+
+        with patch.object(ClipboardManager, "hash_clipboard", return_value=123):
+            self.assertTrue(manager.has_clipboard_changed("otp", now=100.0))
+            self.assertFalse(manager.has_clipboard_changed("otp", now=101.0))
+
+    def test_same_payload_can_be_resent_after_suppression_window(self):
+        manager = ClipboardManager(types.SimpleNamespace(data={}))
+
+        with patch.object(ClipboardManager, "hash_clipboard", return_value=123):
+            self.assertTrue(manager.has_clipboard_changed("otp", now=100.0))
+            self.assertTrue(manager.has_clipboard_changed("otp", now=106.0))
 
 
 if __name__ == "__main__":
