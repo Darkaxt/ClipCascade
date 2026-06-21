@@ -47,8 +47,9 @@ import {
   setSafeKeyStoreValue,
 } from './SafeKeyStore';
 import {
-  getClipboardCaptureUnavailableStatusMessage,
+  getClipboardCaptureStatusMessage,
   getClipboardCaptureUnavailableMessage,
+  isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
@@ -683,26 +684,39 @@ module.exports = async (inputData = null) => {
           }
         };
 
-        const handleShizukuUnavailable = async shizukuStatus => {
-          warnServiceLifecycle('Shizuku backend unavailable', {
-            shizukuStatus,
-          });
+        const handleShizukuPaused = async shizukuStatus => {
           const provider = resolveClipboardCaptureProvider({
             enableShizukuClipboardBackend: 'true',
             shizukuStatus,
           });
+          if (provider.shouldNotifyUnavailable) {
+            warnServiceLifecycle('Shizuku backend unavailable', {
+              shizukuStatus: provider.shizukuStatus,
+            });
+          } else {
+            logServiceLifecycle('Shizuku backend pending', {
+              shizukuStatus: provider.shizukuStatus,
+            });
+          }
           activeClipboardBackend = provider.backend;
           await setClipboardCaptureStatus(provider);
 
-          const message = getClipboardCaptureUnavailableMessage(
+          const statusMessage = getClipboardCaptureStatusMessage(
             provider.shizukuStatus,
           );
+          const activityMessage = provider.shouldNotifyUnavailable
+            ? getClipboardCaptureUnavailableMessage(provider.shizukuStatus)
+            : statusMessage;
           await setDataInAsyncStorage(
             'wsStatusMessage',
-            getClipboardCaptureUnavailableStatusMessage(provider.shizukuStatus),
+            statusMessage,
           );
-          await appendShizukuSystemEvent(message);
-          await showShizukuUnavailableNotification(provider.shizukuStatus);
+          if (activityMessage) {
+            await appendShizukuSystemEvent(activityMessage);
+          }
+          if (provider.shouldNotifyUnavailable) {
+            await showShizukuUnavailableNotification(provider.shizukuStatus);
+          }
         };
 
         const stopActiveClipboardCapture = async () => {
@@ -816,7 +830,7 @@ module.exports = async (inputData = null) => {
           await setClipboardCaptureStatus(provider);
 
           if (!provider.automaticCaptureEnabled) {
-            await handleShizukuUnavailable(provider.shizukuStatus);
+            await handleShizukuPaused(provider.shizukuStatus);
             return;
           }
 
@@ -826,7 +840,7 @@ module.exports = async (inputData = null) => {
               : ClipboardListener;
 
           if (!activeClipboardModule?.startListening) {
-            await handleShizukuUnavailable('not_installed');
+            await handleShizukuPaused('not_installed');
             return;
           }
 
@@ -845,7 +859,7 @@ module.exports = async (inputData = null) => {
 
           if (provider.backend === 'shizuku' && startStatus !== 'connected') {
             await stopActiveClipboardCapture();
-            await handleShizukuUnavailable(startStatus);
+            await handleShizukuPaused(startStatus);
             return;
           }
 
@@ -861,6 +875,9 @@ module.exports = async (inputData = null) => {
             const currentStatusMessage =
               await getDataFromAsyncStorage('wsStatusMessage');
             if (
+              isClipboardCaptureStatusMessageClearableOnRecovery(
+                currentStatusMessage,
+              ) ||
               isClipboardCaptureUnavailableStatusMessage(currentStatusMessage)
             ) {
               await setDataInAsyncStorage('wsStatusMessage', '');
@@ -875,7 +892,7 @@ module.exports = async (inputData = null) => {
                 });
                 if (nextStatus !== 'connected') {
                   await stopActiveClipboardCapture();
-                  await handleShizukuUnavailable(nextStatus);
+                  await handleShizukuPaused(nextStatus);
                 }
               },
             );

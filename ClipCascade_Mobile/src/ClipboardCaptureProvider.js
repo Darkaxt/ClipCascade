@@ -1,5 +1,6 @@
 export const SHIZUKU_STATUS = {
   DISABLED: 'disabled',
+  PERMISSION_PENDING: 'permission_pending',
   NOT_INSTALLED: 'not_installed',
   NOT_AUTHORIZED: 'not_authorized',
   CONNECTED: 'connected',
@@ -42,6 +43,15 @@ export const resolveClipboardCaptureProvider = ({
     };
   }
 
+  if (normalizedStatus === SHIZUKU_STATUS.PERMISSION_PENDING) {
+    return {
+      backend: CLIPBOARD_CAPTURE_BACKEND.PAUSED,
+      shizukuStatus: SHIZUKU_STATUS.PERMISSION_PENDING,
+      automaticCaptureEnabled: false,
+      shouldNotifyUnavailable: false,
+    };
+  }
+
   return {
     backend: CLIPBOARD_CAPTURE_BACKEND.PAUSED,
     shizukuStatus: normalizedStatus,
@@ -52,6 +62,8 @@ export const resolveClipboardCaptureProvider = ({
 
 export const getClipboardCaptureUnavailableMessage = status => {
   switch (normalizeShizukuStatus(status)) {
+    case SHIZUKU_STATUS.PERMISSION_PENDING:
+      return '';
     case SHIZUKU_STATUS.NOT_INSTALLED:
       return 'Shizuku not installed or not running';
     case SHIZUKU_STATUS.NOT_AUTHORIZED:
@@ -66,6 +78,15 @@ export const getClipboardCaptureUnavailableMessage = status => {
     default:
       return 'Shizuku disconnected';
   }
+};
+
+export const getClipboardCaptureStatusMessage = status => {
+  const normalizedStatus = normalizeShizukuStatus(status);
+  if (normalizedStatus === SHIZUKU_STATUS.PERMISSION_PENDING) {
+    return 'Shizuku permission approval pending';
+  }
+
+  return getClipboardCaptureUnavailableStatusMessage(normalizedStatus);
 };
 
 export const getClipboardCaptureUnavailableStatusMessage = status => {
@@ -83,5 +104,16 @@ export const isClipboardCaptureUnavailableStatusMessage = message => {
     status =>
       getClipboardCaptureUnavailableStatusMessage(status) ===
       normalizedMessage,
+  );
+};
+
+export const isClipboardCaptureStatusMessageClearableOnRecovery = message => {
+  const normalizedMessage = String(message || '').trim();
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  return Object.values(SHIZUKU_STATUS).some(
+    status => getClipboardCaptureStatusMessage(status) === normalizedMessage,
   );
 };

@@ -31,6 +31,7 @@ class ShizukuClipboardModule(
         private const val REQUEST_CODE = 4217
         private const val POLL_INTERVAL_MS = 750L
 
+        private const val STATUS_PERMISSION_PENDING = "permission_pending"
         private const val STATUS_NOT_AUTHORIZED = "not_authorized"
         private const val STATUS_CONNECTED = "connected"
         private const val STATUS_DISCONNECTED = "disconnected"
@@ -46,12 +47,14 @@ class ShizukuClipboardModule(
     @Volatile private var pollThread: Thread? = null
     @Volatile private var lastSignature: String = ""
     @Volatile private var lastStatus: String = STATUS_DISCONNECTED
+    @Volatile private var permissionRequestPending: Boolean = false
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
         emitStatusIfChanged(resolveStatus())
     }
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
+        permissionRequestPending = false
         emitStatusIfChanged(STATUS_DISCONNECTED)
         stopListeningInternal(joinThread = false)
     }
@@ -59,6 +62,7 @@ class ShizukuClipboardModule(
     private val permissionResultListener =
         Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
             if (requestCode == REQUEST_CODE) {
+                permissionRequestPending = false
                 val status = if (grantResult == PackageManager.PERMISSION_GRANTED) {
                     STATUS_CONNECTED
                 } else {
@@ -101,11 +105,13 @@ class ShizukuClipboardModule(
         }
 
         try {
+            permissionRequestPending = true
             Shizuku.requestPermission(REQUEST_CODE)
-            val result = buildStatusMap(STATUS_NOT_AUTHORIZED)
+            val result = buildStatusMap(STATUS_PERMISSION_PENDING)
             result.putBoolean("requested", true)
             promise.resolve(result)
         } catch (e: Throwable) {
+            permissionRequestPending = false
             promise.reject("SHIZUKU_PERMISSION_ERROR", "Unable to request Shizuku permission", e)
         }
     }
@@ -235,12 +241,13 @@ class ShizukuClipboardModule(
             if (!Shizuku.pingBinder()) {
                 STATUS_DISCONNECTED
             } else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                STATUS_NOT_AUTHORIZED
+                if (permissionRequestPending) STATUS_PERMISSION_PENDING else STATUS_NOT_AUTHORIZED
             } else {
+                permissionRequestPending = false
                 STATUS_CONNECTED
             }
         } catch (e: SecurityException) {
-            STATUS_NOT_AUTHORIZED
+            if (permissionRequestPending) STATUS_PERMISSION_PENDING else STATUS_NOT_AUTHORIZED
         } catch (e: UnsupportedOperationException) {
             STATUS_UNSUPPORTED
         } catch (e: Throwable) {

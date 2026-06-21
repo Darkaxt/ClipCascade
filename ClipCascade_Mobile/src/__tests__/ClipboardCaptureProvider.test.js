@@ -1,6 +1,8 @@
 import {
+  getClipboardCaptureStatusMessage,
   getClipboardCaptureUnavailableStatusMessage,
   getClipboardCaptureUnavailableMessage,
+  isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
 } from '../ClipboardCaptureProvider';
@@ -46,6 +48,26 @@ describe('clipboard capture provider selection', () => {
       automaticCaptureEnabled: false,
       shouldNotifyUnavailable: true,
     });
+  });
+
+  test('treats Shizuku permission approval as pending without denied notification', () => {
+    expect(
+      resolveClipboardCaptureProvider({
+        enableShizukuClipboardBackend: 'true',
+        shizukuStatus: 'permission_pending',
+      }),
+    ).toEqual({
+      backend: 'paused',
+      shizukuStatus: 'permission_pending',
+      automaticCaptureEnabled: false,
+      shouldNotifyUnavailable: false,
+    });
+    expect(getClipboardCaptureStatusMessage('permission_pending')).toBe(
+      'Shizuku permission approval pending',
+    );
+    expect(getClipboardCaptureUnavailableStatusMessage('permission_pending')).toBe(
+      '',
+    );
   });
 
   test('normalizes unknown Shizuku status as disconnected strict mode', () => {
@@ -94,6 +116,27 @@ describe('clipboard capture provider selection', () => {
     expect(
       isClipboardCaptureUnavailableStatusMessage(
         '⚠️ Shizuku URI access unavailable',
+      ),
+    ).toBe(false);
+  });
+
+  test('identifies pending and unavailable Shizuku status banners as clearable on recovery', () => {
+    expect(
+      isClipboardCaptureStatusMessageClearableOnRecovery(
+        'Shizuku permission approval pending',
+      ),
+    ).toBe(true);
+    expect(
+      isClipboardCaptureStatusMessageClearableOnRecovery(
+        '⚠️ Shizuku permission denied',
+      ),
+    ).toBe(true);
+    expect(
+      isClipboardCaptureStatusMessageClearableOnRecovery('✅ Connected'),
+    ).toBe(false);
+    expect(
+      isClipboardCaptureStatusMessageClearableOnRecovery(
+        '❌ Outbound Error: failed',
       ),
     ).toBe(false);
   });
