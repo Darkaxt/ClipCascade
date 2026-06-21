@@ -47,7 +47,9 @@ import {
   setSafeKeyStoreValue,
 } from './SafeKeyStore';
 import {
+  getClipboardCaptureUnavailableStatusMessage,
   getClipboardCaptureUnavailableMessage,
+  isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
@@ -695,7 +697,10 @@ module.exports = async (inputData = null) => {
           const message = getClipboardCaptureUnavailableMessage(
             provider.shizukuStatus,
           );
-          await setDataInAsyncStorage('wsStatusMessage', `⚠️ ${message}`);
+          await setDataInAsyncStorage(
+            'wsStatusMessage',
+            getClipboardCaptureUnavailableStatusMessage(provider.shizukuStatus),
+          );
           await appendShizukuSystemEvent(message);
           await showShizukuUnavailableNotification(provider.shizukuStatus);
         };
@@ -853,6 +858,13 @@ module.exports = async (inputData = null) => {
             await notifee.cancelNotification(
               'ClipCascade_Shizuku_Status_Notification_Id',
             );
+            const currentStatusMessage =
+              await getDataFromAsyncStorage('wsStatusMessage');
+            if (
+              isClipboardCaptureUnavailableStatusMessage(currentStatusMessage)
+            ) {
+              await setDataInAsyncStorage('wsStatusMessage', '');
+            }
             await appendShizukuSystemEvent('Shizuku connected');
             shizukuStatusOnChange = clipboardListener.addListener(
               'onShizukuStatusChange',

@@ -1,5 +1,7 @@
 import {
+  getClipboardCaptureUnavailableStatusMessage,
   getClipboardCaptureUnavailableMessage,
+  isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
 } from '../ClipboardCaptureProvider';
 
@@ -70,5 +72,29 @@ describe('clipboard capture provider selection', () => {
     expect(getClipboardCaptureUnavailableMessage('disconnected')).toBe(
       'Shizuku disconnected',
     );
+  });
+
+  test('identifies Shizuku unavailable status banners as clearable on recovery', () => {
+    expect(
+      getClipboardCaptureUnavailableStatusMessage('not_authorized'),
+    ).toBe('⚠️ Shizuku permission denied');
+    expect(
+      isClipboardCaptureUnavailableStatusMessage(
+        '⚠️ Shizuku permission denied',
+      ),
+    ).toBe(true);
+    expect(
+      isClipboardCaptureUnavailableStatusMessage(
+        '⚠️ Shizuku clipboard backend unsupported',
+      ),
+    ).toBe(true);
+    expect(
+      isClipboardCaptureUnavailableStatusMessage('❌ Outbound Error: failed'),
+    ).toBe(false);
+    expect(
+      isClipboardCaptureUnavailableStatusMessage(
+        '⚠️ Shizuku URI access unavailable',
+      ),
+    ).toBe(false);
   });
 });

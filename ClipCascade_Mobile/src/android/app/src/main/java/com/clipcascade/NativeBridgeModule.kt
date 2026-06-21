@@ -17,8 +17,11 @@ import android.util.Base64
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
@@ -43,6 +46,49 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     override fun getName(): String {
         return "NativeBridgeModule"
+    }
+
+    override fun getConstants(): MutableMap<String, Any> {
+        return hashMapOf(
+            "appVersionName" to getInstalledVersionName(),
+            "appVersionCode" to getInstalledVersionCode()
+        )
+    }
+
+    private fun getInstalledPackageInfo(): PackageInfo? {
+        return try {
+            val packageManager = reactApplicationContext.packageManager
+            val packageName = reactApplicationContext.packageName
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read installed package metadata", e)
+            null
+        }
+    }
+
+    private fun getInstalledVersionName(): String {
+        return getInstalledPackageInfo()?.versionName ?: BuildConfig.VERSION_NAME
+    }
+
+    private fun getInstalledVersionCode(): String {
+        val packageInfo = getInstalledPackageInfo()
+        if (packageInfo != null) {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode.toString()
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toString()
+            }
+        }
+        return BuildConfig.VERSION_CODE.toString()
     }
 
     @ReactMethod

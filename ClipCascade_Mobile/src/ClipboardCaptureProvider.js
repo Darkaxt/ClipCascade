@@ -67,3 +67,21 @@ export const getClipboardCaptureUnavailableMessage = status => {
       return 'Shizuku disconnected';
   }
 };
+
+export const getClipboardCaptureUnavailableStatusMessage = status => {
+  const message = getClipboardCaptureUnavailableMessage(status);
+  return message ? `⚠️ ${message}` : '';
+};
+
+export const isClipboardCaptureUnavailableStatusMessage = message => {
+  const normalizedMessage = String(message || '').trim();
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  return Object.values(SHIZUKU_STATUS).some(
+    status =>
+      getClipboardCaptureUnavailableStatusMessage(status) ===
+      normalizedMessage,
+  );
+};

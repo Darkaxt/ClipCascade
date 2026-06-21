@@ -65,6 +65,7 @@ import {
   getConnectedServiceActions,
 } from './ServiceControls';
 import { shouldShowNewVersion } from './VersionCheck';
+import { getInstalledAppVersion } from './AppVersion';
 
 /*
  * These files are part of the ClipCascade project.
@@ -91,12 +92,10 @@ import { shouldShowNewVersion } from './VersionCheck';
  * (file) StartForegroundService.js
  */
 
-// App version
-const APP_VERSION = '3.2.0.7';
-
 // Main App
 export default function App() {
   const { NativeBridgeModule, ShizukuClipboard } = NativeModules;
+  const appVersion = getInstalledAppVersion();
 
   const isMountedRef = useRef(true);
 
@@ -377,7 +376,7 @@ export default function App() {
             throw new Error('Network response was not ok');
           }
           const data = await response.json();
-          if (data && shouldShowNewVersion(APP_VERSION, data.android)) {
+          if (data && appVersion && shouldShowNewVersion(appVersion, data.android)) {
             setNewVersionAvailable([true, data.android]);
           }
         } catch (e) {
@@ -1501,7 +1500,7 @@ export default function App() {
                     },
                   ]}
                 >
-                  New version available! 🚀 Click here to update ({APP_VERSION}{' '}
+                  New version available! 🚀 Click here to update ({appVersion}{' '}
                   ➞ {newVersionAvailable[1]})
                 </Text>
               </TouchableOpacity>
