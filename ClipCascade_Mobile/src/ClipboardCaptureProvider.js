@@ -14,6 +14,9 @@ export const CLIPBOARD_CAPTURE_BACKEND = {
   PAUSED: 'paused',
 };
 
+export const SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE =
+  '⚠️ Shizuku URI access unavailable';
+
 const validShizukuStatuses = new Set(Object.values(SHIZUKU_STATUS));
 
 const normalizeShizukuStatus = status =>
@@ -104,7 +107,7 @@ export const isClipboardCaptureUnavailableStatusMessage = message => {
     status =>
       getClipboardCaptureUnavailableStatusMessage(status) ===
       normalizedMessage,
-  );
+  ) || normalizedMessage === SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE;
 };
 
 export const isClipboardCaptureStatusMessageClearableOnRecovery = message => {
@@ -115,5 +118,5 @@ export const isClipboardCaptureStatusMessageClearableOnRecovery = message => {
 
   return Object.values(SHIZUKU_STATUS).some(
     status => getClipboardCaptureStatusMessage(status) === normalizedMessage,
-  );
+  ) || normalizedMessage === SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE;
 };

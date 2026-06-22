@@ -117,7 +117,7 @@ describe('clipboard capture provider selection', () => {
       isClipboardCaptureUnavailableStatusMessage(
         '⚠️ Shizuku URI access unavailable',
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test('identifies pending and unavailable Shizuku status banners as clearable on recovery', () => {
@@ -134,6 +134,11 @@ describe('clipboard capture provider selection', () => {
     expect(
       isClipboardCaptureStatusMessageClearableOnRecovery('✅ Connected'),
     ).toBe(false);
+    expect(
+      isClipboardCaptureStatusMessageClearableOnRecovery(
+        '⚠️ Shizuku URI access unavailable',
+      ),
+    ).toBe(true);
     expect(
       isClipboardCaptureStatusMessageClearableOnRecovery(
         '❌ Outbound Error: failed',

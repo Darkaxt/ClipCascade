@@ -66,6 +66,7 @@ import {
 } from './ServiceControls';
 import { shouldShowNewVersion } from './VersionCheck';
 import { getInstalledAppVersion } from './AppVersion';
+import { shouldApplyPolledStatusMessage } from './UiStatusMessage';
 
 /*
  * These files are part of the ClipCascade project.
@@ -875,7 +876,7 @@ export default function App() {
       if (latest.wsIsRunning === 'true') {
         // Websocket status message
         const msg1 = latest.wsStatusMessage;
-        if (msg1 !== null && msg1 !== '') {
+        if (shouldApplyPolledStatusMessage(msg1)) {
           setWsPageMessage(msg1);
         }
 

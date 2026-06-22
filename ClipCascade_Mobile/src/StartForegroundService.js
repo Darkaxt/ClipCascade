@@ -52,6 +52,7 @@ import {
   isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
+  SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE,
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 
@@ -176,7 +177,6 @@ module.exports = async (inputData = null) => {
 
         const clipboardDuplicateSuppression =
           createClipboardDuplicateSuppression();
-        let toggle = false; // p2s toggle
         const localImageEchoGuard = createLocalImageEchoGuard();
         let files_in_memory = null;
         let websocket_status_notification_toggle = false;
@@ -669,6 +669,22 @@ module.exports = async (inputData = null) => {
           });
         };
 
+        const clearShizukuRecoveryStatus = async () => {
+          await notifee.cancelNotification(
+            'ClipCascade_Shizuku_Status_Notification_Id',
+          );
+          const currentStatusMessage =
+            await getDataFromAsyncStorage('wsStatusMessage');
+          if (
+            isClipboardCaptureStatusMessageClearableOnRecovery(
+              currentStatusMessage,
+            ) ||
+            isClipboardCaptureUnavailableStatusMessage(currentStatusMessage)
+          ) {
+            await setDataInAsyncStorage('wsStatusMessage', '');
+          }
+        };
+
         const getNativeShizukuStatus = async () => {
           if (!ShizukuClipboard?.getStatus) {
             return 'not_installed';
@@ -758,7 +774,7 @@ module.exports = async (inputData = null) => {
           });
           await setDataInAsyncStorage(
             'wsStatusMessage',
-            '⚠️ Shizuku URI access unavailable',
+            SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE,
           );
         };
 
@@ -869,19 +885,7 @@ module.exports = async (inputData = null) => {
           );
 
           if (provider.backend === 'shizuku') {
-            await notifee.cancelNotification(
-              'ClipCascade_Shizuku_Status_Notification_Id',
-            );
-            const currentStatusMessage =
-              await getDataFromAsyncStorage('wsStatusMessage');
-            if (
-              isClipboardCaptureStatusMessageClearableOnRecovery(
-                currentStatusMessage,
-              ) ||
-              isClipboardCaptureUnavailableStatusMessage(currentStatusMessage)
-            ) {
-              await setDataInAsyncStorage('wsStatusMessage', '');
-            }
+            await clearShizukuRecoveryStatus();
             await appendShizukuSystemEvent('Shizuku connected');
             shizukuStatusOnChange = clipboardListener.addListener(
               'onShizukuStatusChange',
@@ -890,7 +894,15 @@ module.exports = async (inputData = null) => {
                 logServiceLifecycle('Shizuku status event', {
                   nextStatus,
                 });
-                if (nextStatus !== 'connected') {
+                if (nextStatus === 'connected') {
+                  activeClipboardBackend = 'shizuku';
+                  await setClipboardCaptureStatus({
+                    backend: 'shizuku',
+                    shizukuStatus: 'connected',
+                  });
+                  await clearShizukuRecoveryStatus();
+                  await appendShizukuSystemEvent('Shizuku connected');
+                } else {
                   await stopActiveClipboardCapture();
                   await handleShizukuPaused(nextStatus);
                 }
@@ -962,12 +974,10 @@ module.exports = async (inputData = null) => {
               logServiceLifecycle('STOMP connected');
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
-              toggle = false;
               // Subscribe to a topic
               stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
                 try {
                   await clearFiles();
-                  toggle = false;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '✅ Connected - Subscribed',
@@ -1139,91 +1149,62 @@ module.exports = async (inputData = null) => {
                 originalClipContent,
                 type_,
               );
-              if (stompClient && stompClient.connected && !toggle) {
-                if (
-                  (type_ === 'image' &&
-                    runtimeSettings.enable_image_sharing === 'false') ||
-                  (type_ === 'files' &&
-                    runtimeSettings.enable_file_sharing === 'false')
-                ) {
-                  await appendActivityEvent({
-                    direction: 'outbound',
-                    type: type_,
-                    status: 'Ignored',
-                    content: originalClipContent,
-                    metadata: {
-                      ...outboundMetadata,
-                      statusDetail: 'Sharing disabled',
-                    },
-                  });
-                  return;
+              if (!(stompClient && stompClient.connected)) {
+                await appendActivityEvent({
+                  direction: 'outbound',
+                  type: type_,
+                  status: 'Error',
+                  content: originalClipContent,
+                  metadata: {
+                    ...outboundMetadata,
+                    statusDetail: 'WebSocket not connected',
+                  },
+                });
+                return;
+              }
+
+              if (
+                (type_ === 'image' &&
+                  runtimeSettings.enable_image_sharing === 'false') ||
+                (type_ === 'files' &&
+                  runtimeSettings.enable_file_sharing === 'false')
+              ) {
+                await appendActivityEvent({
+                  direction: 'outbound',
+                  type: type_,
+                  status: 'Ignored',
+                  content: originalClipContent,
+                  metadata: {
+                    ...outboundMetadata,
+                    statusDetail: 'Sharing disabled',
+                  },
+                });
+                return;
+              }
+
+              if (await validateClipboardSize(clipContent, type_, 'Outbound')) {
+                // base64 encode
+                if (type_ === 'image') {
+                  clipContent = await NativeBridgeModule.getFileAsBase64(
+                    clipContent,
+                  );
+                } else if (type_ === 'files') {
+                  const temp = createSafeKeyStore();
+                  const file_paths = clipContent
+                    .split(',')
+                    .filter(item => item.trim() !== '');
+
+                  for (const file_path of file_paths) {
+                    temp[await NativeBridgeModule.getFileName(file_path)] =
+                      await NativeBridgeModule.getFileAsBase64(file_path);
+                  }
+                  clipContent = JSON.stringify(temp);
                 }
 
-                if (
-                  await validateClipboardSize(clipContent, type_, 'Outbound')
-                ) {
-                  // base64 encode
-                  if (type_ === 'image') {
-                    clipContent = await NativeBridgeModule.getFileAsBase64(
-                      clipContent,
-                    );
-                  } else if (type_ === 'files') {
-                    const temp = createSafeKeyStore();
-                    const file_paths = clipContent
-                      .split(',')
-                      .filter(item => item.trim() !== '');
-
-                    for (const file_path of file_paths) {
-                      temp[await NativeBridgeModule.getFileName(file_path)] =
-                        await NativeBridgeModule.getFileAsBase64(file_path);
-                    }
-                    clipContent = JSON.stringify(temp);
-                  }
-
-                  // clipboad content hash
-                  const hcb = await hashCB(clipContent);
-                  if (await newCB(hcb)) {
-                    if (localImageEchoGuard.shouldSuppress(type_)) {
-                      await appendActivityEvent({
-                        direction: 'outbound',
-                        type: type_,
-                        status: 'Ignored',
-                        content: originalClipContent,
-                        metadata: {
-                          ...outboundMetadata,
-                          statusDetail: 'Local image echo suppressed',
-                        },
-                      });
-                    } else {
-                      toggle = true;
-
-                      if (cipher_enabled === 'true') {
-                        //ecrypt
-                        clipContent = await encrypt(clipContent);
-                      }
-
-                      await setDataInAsyncStorage(
-                        'wsStatusMessage',
-                        '✅ Connected - Broadcasting',
-                      );
-
-                      // send
-                      stompClient.publish({
-                        destination: SEND_DESTINATION,
-                        body: JSON.stringify({
-                          payload: String(clipContent),
-                          type: type_,
-                        }),
-                      });
-                      await appendActivityEvent({
-                        direction: 'outbound',
-                        type: type_,
-                        status: 'Sent',
-                        content: originalClipContent,
-                        metadata: outboundMetadata,
-                      });
-                    }
-                  } else {
+                // clipboad content hash
+                const hcb = await hashCB(clipContent);
+                if (await newCB(hcb)) {
+                  if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
                       type: type_,
@@ -1231,14 +1212,50 @@ module.exports = async (inputData = null) => {
                       content: originalClipContent,
                       metadata: {
                         ...outboundMetadata,
-                        statusDetail: 'Duplicate clipboard',
+                        statusDetail: 'Local image echo suppressed',
                       },
                     });
+                  } else {
+                    if (cipher_enabled === 'true') {
+                      //ecrypt
+                      clipContent = await encrypt(clipContent);
+                    }
+
+                    await setDataInAsyncStorage(
+                      'wsStatusMessage',
+                      '✅ Connected - Broadcasting',
+                    );
+
+                    // send
+                    stompClient.publish({
+                      destination: SEND_DESTINATION,
+                      body: JSON.stringify({
+                        payload: String(clipContent),
+                        type: type_,
+                      }),
+                    });
+                    await appendActivityEvent({
+                      direction: 'outbound',
+                      type: type_,
+                      status: 'Sent',
+                      content: originalClipContent,
+                      metadata: outboundMetadata,
+                    });
                   }
+                } else {
+                  await appendActivityEvent({
+                    direction: 'outbound',
+                    type: type_,
+                    status: 'Ignored',
+                    content: originalClipContent,
+                    metadata: {
+                      ...outboundMetadata,
+                      statusDetail: 'Duplicate clipboard',
+                    },
+                  });
                 }
               }
             } catch (e) {
-              toggle = false;
               await resetLocalClipboardEchoGuards();
               if (
                 options.backend === 'shizuku' &&
