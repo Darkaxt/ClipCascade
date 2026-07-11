@@ -8,19 +8,19 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app uses package name `com.darkaxt.clipcascade` and app label `ClipCascade Darkaxt`, so it can be installed beside the upstream `com.clipcascade` APK during testing.
 
-Android and Windows version `3.2.0.12` means upstream ClipCascade `3.2.0` plus Darkaxt fork revision `.12`. The server remains at `3.2.0.5`.
+Android `3.2.0.15` and Windows `3.2.0.16` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions. The server remains at `3.2.0.5`.
 
 ### Latest Darkaxt Release
 
-Download release `3.2.0.12` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.12).
+Download release `3.2.0.16` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.16).
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `app-release.apk` | `6994A103E06C78DAD510FC8B860E8A4BB40F0B002FC123539ACD4499C46973DE` |
-| `ClipCascade.exe` | `74A42B3E1420E77594780E2D8D5A8BBA175DF81A57B3F5A3B9B74E2D00D053AC` |
+| `app-release.apk` | `A3664ABF5EE374040F55ECD0F8A2E01B8DA2B49DF3E7B525E58FDE4DF2B8F327` |
+| `ClipCascade.exe` | `20A03331F91F4239F5494F910462DE252A329273A48FA9A25917F07251E4A224` |
 | `ClipCascade-Server-JRE_21.jar` | `012B25A9BBCAF32EDAD73E56DF0D0657F478BAA95DF04E808D417421F3B3049E` |
 
-Release `3.2.0.12` makes duplicate clipboard suppression time-aware on Android and Windows: immediate duplicate OS/echo events are still suppressed, but the same payload can be resent after the short suppression window. It also makes the Android foreground-service notification use a stable notification id and reposts it if Android/Notifee drops it while monitoring is still alive. Release `3.2.0.10` fixes the Windows activity viewer lifecycle so closing the log/activity window does not orphan the process without a visible tray icon. Release `3.2.0.9` auto-recovers Android monitoring after app updates or app-open foreground-service misses, and fixes Android image echo suppression so a stale inbound-image guard cannot suppress later real text copies such as OTPs. Release `3.2.0.7` makes watchdog recovery restart the stale Android foreground-service shell before starting monitoring again, so a stuck JS monitoring loop can recover without opening the app. Release `3.2.0.6` added Android watchdog diagnostics and clears stale inactive-service alerts only after the foreground JS service actually responds. Release `3.2.0.5` included API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
+Release `3.2.0.16` makes the Windows tray registration resilient to display, DPI, graphics, and Explorer transitions. It refreshes the native icon in place, checks `Shell_NotifyIcon` results, and re-adds a missing icon without restarting clipboard sync. Release `3.2.0.12` makes duplicate clipboard suppression time-aware on Android and Windows: immediate duplicate OS/echo events are still suppressed, but the same payload can be resent after the short suppression window. It also makes the Android foreground-service notification use a stable notification id and reposts it if Android/Notifee drops it while monitoring is still alive. Release `3.2.0.10` fixes the Windows activity viewer lifecycle so closing the log/activity window does not orphan the process without a visible tray icon. Release `3.2.0.9` auto-recovers Android monitoring after app updates or app-open foreground-service misses, and fixes Android image echo suppression so a stale inbound-image guard cannot suppress later real text copies such as OTPs. Release `3.2.0.7` makes watchdog recovery restart the stale Android foreground-service shell before starting monitoring again, so a stuck JS monitoring loop can recover without opening the app. Release `3.2.0.6` added Android watchdog diagnostics and clears stale inactive-service alerts only after the foreground JS service actually responds. Release `3.2.0.5` included API-key-first client enrollment, shared E2E sync encryption key escrow, source-client fanout exclusion, Shizuku clipboard capture for Android, activity logs, large-message tuning, and removal of the old setup-bundle import flow.
 
 Android resilience changes in this fork:
 
@@ -53,6 +53,7 @@ Large payload note: the server can be configured for very large messages, but An
 Windows client changes in this fork:
 
 - Left-click the tray icon, or choose **Open Activity** from the right-click menu, to inspect recent clipboard events.
+- Windows display and shell transitions re-register a missing tray icon without restarting the clipboard connection.
 - The activity view shows memory-only rows for local detection, sends, remote receives, local applies, ignored duplicates, and errors.
 - Duplicate echo events are shown as `Suppressed` instead of noisy `Detected`/`Ignored` pairs.
 - The normal log records privacy-safe activity metadata only, such as `Local Image Sent via P2S`, without copied text previews or file contents.

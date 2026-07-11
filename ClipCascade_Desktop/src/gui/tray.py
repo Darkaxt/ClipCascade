@@ -6,7 +6,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog
 import webbrowser
-from pystray import Icon, MenuItem as item, Menu
+from pystray import MenuItem as item, Menu
 
 from core.config import Config
 from gui.info import CustomDialog
@@ -18,6 +18,7 @@ from utils.window_icon import (
     create_clipboard_icon_with_dot,
     set_windows_app_user_model_id,
 )
+from utils.resilient_tray import ResilientIcon
 from core.constants import *
 
 if PLATFORM != WINDOWS:
@@ -65,7 +66,9 @@ class TaskbarPanel:
         self.is_connected = True
 
         # Create the tray icon
-        self.icon = Icon("ClipCascade", create_clipboard_icon(), menu=self.create_menu())
+        self.icon = ResilientIcon(
+            "ClipCascade", create_clipboard_icon(), menu=self.create_menu()
+        )
 
         self.icon.title = "ClipCascade"
 
