@@ -108,6 +108,9 @@ const {
   setDataInAsyncStorage,
 } = require('../AsyncStorageManagement');
 const { Client } = require('@stomp/stompjs');
+const {
+  armLocalClipboardReplay,
+} = require('../LocalClipboardReplay');
 const StartForegroundService = require('../StartForegroundService');
 
 describe('StartForegroundService notification contract', () => {
@@ -230,5 +233,44 @@ describe('StartForegroundService notification contract', () => {
     mockWsIsRunning = false;
     jest.advanceTimersByTime(1000);
     await Promise.resolve();
+  });
+
+  test('does not send text restored from activity history', async () => {
+    await StartForegroundService();
+    const foregroundCallback = notifee.registerForegroundService.mock.calls[0][0];
+    foregroundCallback({
+      id: 'ClipCascade_Foreground_Service_Notification_Id',
+    });
+
+    for (
+      let attempts = 0;
+      attempts < 20 &&
+      (!Client.mock.instances[0]?.activate ||
+        !mockNativeEventListeners.onClipboardChange);
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    const stompInstance = Client.mock.instances[0];
+    await stompInstance.activate.mock.results[0].value;
+    await armLocalClipboardReplay({
+      setValue: setDataInAsyncStorage,
+      content: 'history-only text',
+    });
+
+    await mockNativeEventListeners.onClipboardChange({
+      type: 'text',
+      content: 'history-only text',
+      backend: 'legacy',
+    });
+
+    expect(stompInstance.publish).not.toHaveBeenCalled();
+    expect(appendClipboardEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'outbound',
+        content: 'history-only text',
+      }),
+    );
   });
 });

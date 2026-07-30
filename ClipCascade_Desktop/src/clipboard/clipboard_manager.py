@@ -1,8 +1,10 @@
 import base64
+import hashlib
 import io
 import json
 import logging
 import os
+import threading
 import time
 import xxhash
 
@@ -39,6 +41,8 @@ class ClipboardManager:
         self.transport = transport
         self.previous_clipboard_hash = None
         self.previous_clipboard_hash_at = 0.0
+        self._local_replay_hash = None
+        self._local_replay_lock = threading.Lock()
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
 
@@ -58,6 +62,7 @@ class ClipboardManager:
         status: str,
         preview: str = "",
         detail: str = "",
+        replay_text: str = None,
     ):
         if self.activity_log is not None:
             self.activity_log.append(
@@ -67,6 +72,7 @@ class ClipboardManager:
                 preview=preview,
                 transport=self.transport,
                 detail=detail,
+                replay_text=replay_text,
             )
 
     def reset_files_download(self):
@@ -171,14 +177,47 @@ class ClipboardManager:
             enable_file_monitoring=self.config.data["enable_file_sharing"],
         )
 
+    def copy_text_locally(self, content: str) -> bool:
+        replay_hash = self._hash_local_replay(content)
+        with self._local_replay_lock:
+            self._local_replay_hash = replay_hash
+
+        try:
+            self.paste(content, "text")
+            return True
+        except Exception:
+            with self._local_replay_lock:
+                if self._local_replay_hash == replay_hash:
+                    self._local_replay_hash = None
+            return False
+
+    def _consume_local_replay(self, content: str) -> bool:
+        content_hash = self._hash_local_replay(content)
+        with self._local_replay_lock:
+            pending_hash = self._local_replay_hash
+            if pending_hash is None:
+                return False
+            self._local_replay_hash = None
+        return pending_hash == content_hash
+
+    @staticmethod
+    def _hash_local_replay(content: str) -> bytes:
+        return hashlib.sha3_256(str(content).encode("utf-8")).digest()
+
     def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
         type_ = type_.lower()
         try:
+            if type_ == "text" and self._consume_local_replay(content):
+                logging.info("Local activity replay copied without synchronization")
+                return
+
             self.reset_files_download()
 
             if type_ == "text":
                 preview = ActivityLog.preview_text(content)
-                self.append_activity("Local", type_, "Detected", preview)
+                self.append_activity(
+                    "Local", type_, "Detected", preview, replay_text=content
+                )
                 if self.is_clipboard_size_within_limit(content, type_):
                     callback(content, type_)
                 else:
@@ -246,7 +285,9 @@ class ClipboardManager:
                 preview = ActivityLog.preview_text(txt)
                 if self.is_clipboard_size_within_limit(txt, type_):
                     self.paste(txt, type_)
-                    self.append_activity("Remote", type_, "Applied", preview)
+                    self.append_activity(
+                        "Remote", type_, "Applied", preview, replay_text=txt
+                    )
                 else:
                     self.append_activity(
                         "Remote", type_, "Ignored", preview, "Size limit exceeded"

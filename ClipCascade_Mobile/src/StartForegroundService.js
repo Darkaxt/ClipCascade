@@ -40,6 +40,7 @@ import {
   shouldSuppressClipboardEcho,
 } from './ClipboardEchoSuppression';
 import { createClipboardDuplicateSuppression } from './ClipboardDuplicateSuppression';
+import { consumeLocalClipboardReplay } from './LocalClipboardReplay';
 import {
   createSafeKeyStore,
   deleteSafeKeyStoreValue,
@@ -782,6 +783,16 @@ module.exports = async (inputData = null) => {
           try {
             if (params && params.content && params.type) {
               const backend = params.backend || activeClipboardBackend;
+              if (
+                await consumeLocalClipboardReplay({
+                  getValue: getDataFromAsyncStorage,
+                  setValue: setDataInAsyncStorage,
+                  type: params.type,
+                  content: params.content,
+                })
+              ) {
+                return;
+              }
               if (
                 await shouldSuppressLocalClipboardEcho(
                   params.type,

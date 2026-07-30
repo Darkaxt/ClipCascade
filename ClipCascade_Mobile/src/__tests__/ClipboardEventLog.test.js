@@ -2,7 +2,9 @@ import {
   appendClipboardEvent,
   clearClipboardEvents,
   CLIPBOARD_EVENT_LOG_LIMIT,
+  CLIPBOARD_REPLAY_CACHE_LIMIT_BYTES,
   getClipboardEvents,
+  getReplayableText,
 } from '../ClipboardEventLog';
 
 describe('clipboard activity event log', () => {
@@ -28,19 +30,53 @@ describe('clipboard activity event log', () => {
   });
 
   test('stores only truncated normalized previews for text content', () => {
+    const content =
+      'secret-token-start      copied text with too many characters and unique-sensitive-tail';
     const event = appendClipboardEvent({
       direction: 'outbound',
       type: 'text',
       status: 'Sent',
-      content:
-        'secret-token-start      copied text with too many characters and unique-sensitive-tail',
+      content,
     });
 
     expect(event.preview).toBe(
       'secret-token-start copied text with too many cha...',
     );
+    expect(event.replayable).toBe(true);
+    expect(getReplayableText(event.id)).toBe(content);
     expect(event).not.toHaveProperty('content');
     expect(JSON.stringify(event)).not.toContain('unique-sensitive-tail');
+  });
+
+  test('clearing activity removes private replay text', () => {
+    const event = appendClipboardEvent({
+      direction: 'inbound',
+      type: 'text',
+      status: 'Applied',
+      content: 'temporary replay value',
+    });
+
+    clearClipboardEvents();
+
+    expect(getReplayableText(event.id)).toBeUndefined();
+  });
+
+  test('evicts oldest replay text when the byte budget is exceeded', () => {
+    const payloadSize = Math.floor(CLIPBOARD_REPLAY_CACHE_LIMIT_BYTES / 2) + 1;
+    const oldest = appendClipboardEvent({
+      type: 'text',
+      content: 'a'.repeat(payloadSize),
+    });
+    const newest = appendClipboardEvent({
+      type: 'text',
+      content: 'b'.repeat(payloadSize),
+    });
+
+    expect(getReplayableText(oldest.id)).toBeUndefined();
+    expect(getReplayableText(newest.id)).toHaveLength(payloadSize);
+    expect(getClipboardEvents().find(event => event.id === oldest.id)).toEqual(
+      expect.objectContaining({ replayable: false }),
+    );
   });
 
   test('stores image and file metadata without raw payloads', () => {
@@ -62,6 +98,9 @@ describe('clipboard activity event log', () => {
     expect(image.preview).toBe('Image');
     expect(image.metadataText).toBe('1.5 KiB');
     expect(files.preview).toBe('2 files: a.txt, b.png');
+    expect(image.replayable).toBe(false);
+    expect(files.replayable).toBe(false);
+    expect(getReplayableText(image.id)).toBeUndefined();
     expect(JSON.stringify(getClipboardEvents())).not.toContain(
       'raw-image-payload-that-should-not-be-kept',
     );

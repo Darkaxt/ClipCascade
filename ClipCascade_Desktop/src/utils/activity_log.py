@@ -4,7 +4,9 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+import uuid
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from typing import Iterable, List, Optional
 
 from PIL import Image
@@ -12,6 +14,7 @@ from PIL import Image
 
 @dataclass(frozen=True)
 class ActivityEvent:
+    event_id: str
     timestamp: float
     direction: str
     payload_type: str
@@ -19,20 +22,27 @@ class ActivityEvent:
     preview: str
     transport: str = ""
     detail: str = ""
+    replayable: bool = False
 
 
 class ActivityLog:
-    def __init__(self, max_rows: int = 50):
+    DEFAULT_REPLAY_CACHE_LIMIT_BYTES = 8 * 1024 * 1024
+
+    def __init__(
+        self,
+        max_rows: int = 50,
+        replay_cache_limit_bytes: int = DEFAULT_REPLAY_CACHE_LIMIT_BYTES,
+    ):
         self.max_rows = max_rows
+        self.replay_cache_limit_bytes = max(0, replay_cache_limit_bytes)
         self._rows: List[ActivityEvent] = []
+        self._replay_text_by_event_id = OrderedDict()
+        self._replay_text_bytes = 0
         self._lock = threading.Lock()
 
     @staticmethod
     def _is_duplicate_payload(status: str, detail: str) -> bool:
-        return (
-            (status or "").lower() == "ignored"
-            and "duplicate payload" in (detail or "").lower()
-        )
+        return (status or "").lower() == "ignored" and "duplicate payload" in (detail or "").lower()
 
     @staticmethod
     def _matches_detected_duplicate(
@@ -58,12 +68,14 @@ class ActivityLog:
         preview: str = "",
         transport: str = "",
         detail: str = "",
+        replay_text: Optional[str] = None,
     ) -> ActivityEvent:
         if self._is_duplicate_payload(status, detail):
             status = "Suppressed"
             detail = "Duplicate payload; no resend"
 
         event = ActivityEvent(
+            event_id=uuid.uuid4().hex,
             timestamp=time.time(),
             direction=direction,
             payload_type=payload_type,
@@ -85,10 +97,15 @@ class ActivityLog:
                     event.transport,
                 )
             ):
+                event = replace(event, event_id=self._rows[0].event_id)
                 self._rows[0] = event
             else:
                 self._rows.insert(0, event)
             del self._rows[self.max_rows :]
+            if replay_text is not None:
+                self._store_replay_text_locked(event.event_id, replay_text)
+            self._prune_replay_text_locked()
+            public_event = self._to_public_event_locked(event)
         suffix = f" via {event.transport}" if event.transport else ""
         logging.info(
             "Activity: %s %s %s%s",
@@ -97,15 +114,52 @@ class ActivityLog:
             event.status,
             suffix,
         )
-        return event
+        return public_event
+
+    def _remove_replay_text_locked(self, event_id: str) -> None:
+        cached = self._replay_text_by_event_id.pop(event_id, None)
+        if cached is not None:
+            self._replay_text_bytes -= cached[1]
+
+    def _store_replay_text_locked(self, event_id: str, replay_text: str) -> None:
+        self._remove_replay_text_locked(event_id)
+        text = str(replay_text)
+        size_bytes = len(text.encode("utf-8"))
+        if size_bytes > self.replay_cache_limit_bytes:
+            return
+
+        self._replay_text_by_event_id[event_id] = (text, size_bytes)
+        self._replay_text_bytes += size_bytes
+        while self._replay_text_bytes > self.replay_cache_limit_bytes:
+            oldest_event_id = next(iter(self._replay_text_by_event_id))
+            self._remove_replay_text_locked(oldest_event_id)
+
+    def _prune_replay_text_locked(self) -> None:
+        retained_event_ids = {row.event_id for row in self._rows}
+        for event_id in list(self._replay_text_by_event_id):
+            if event_id not in retained_event_ids:
+                self._remove_replay_text_locked(event_id)
+
+    def _to_public_event_locked(self, event: ActivityEvent) -> ActivityEvent:
+        replayable = event.event_id in self._replay_text_by_event_id
+        if event.replayable == replayable:
+            return event
+        return replace(event, replayable=replayable)
 
     def snapshot(self) -> List[ActivityEvent]:
         with self._lock:
-            return list(self._rows)
+            return [self._to_public_event_locked(row) for row in self._rows]
+
+    def get_replay_text(self, event_id: str) -> Optional[str]:
+        with self._lock:
+            cached = self._replay_text_by_event_id.get(event_id)
+            return None if cached is None else cached[0]
 
     def clear(self) -> None:
         with self._lock:
             self._rows.clear()
+            self._replay_text_by_event_id.clear()
+            self._replay_text_bytes = 0
 
     @staticmethod
     def preview_text(payload: object, max_chars: int = 48) -> str:

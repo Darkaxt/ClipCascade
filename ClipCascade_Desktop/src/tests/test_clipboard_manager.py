@@ -4,7 +4,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -69,6 +69,49 @@ class ClipboardManagerDuplicateSuppressionTest(unittest.TestCase):
         with patch.object(ClipboardManager, "hash_clipboard", return_value=123):
             self.assertTrue(manager.has_clipboard_changed("otp", now=100.0))
             self.assertTrue(manager.has_clipboard_changed("otp", now=106.0))
+
+
+class ClipboardManagerLocalReplayTest(unittest.TestCase):
+    def setUp(self):
+        self.manager = ClipboardManager(types.SimpleNamespace(data={}))
+        self.manager.is_clipboard_size_within_limit = Mock(return_value=True)
+
+    def test_matching_replay_is_suppressed_once_before_outbound_callback(self):
+        callback = Mock()
+        with patch.object(self.manager, "paste") as paste:
+            self.assertTrue(self.manager.copy_text_locally("history value"))
+            paste.assert_called_once_with("history value", "text")
+
+        self.manager.clipboard_to_base64(callback, "history value", "text")
+        callback.assert_not_called()
+
+        self.manager.clipboard_to_base64(callback, "history value", "text")
+        callback.assert_called_once_with("history value", "text")
+
+    def test_different_text_is_not_suppressed_and_consumes_guard(self):
+        callback = Mock()
+        with patch.object(self.manager, "paste"):
+            self.manager.copy_text_locally("history value")
+
+        self.manager.clipboard_to_base64(callback, "new value", "text")
+        self.manager.clipboard_to_base64(callback, "history value", "text")
+
+        self.assertEqual(
+            callback.call_args_list,
+            [
+                unittest.mock.call("new value", "text"),
+                unittest.mock.call("history value", "text"),
+            ],
+        )
+
+    def test_failed_local_write_clears_replay_guard(self):
+        callback = Mock()
+        with patch.object(self.manager, "paste", side_effect=RuntimeError("clipboard busy")):
+            self.assertFalse(self.manager.copy_text_locally("history value"))
+
+        self.manager.clipboard_to_base64(callback, "history value", "text")
+
+        callback.assert_called_once_with("history value", "text")
 
 
 if __name__ == "__main__":

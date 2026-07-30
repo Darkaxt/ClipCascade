@@ -1,8 +1,11 @@
 export const CLIPBOARD_EVENT_LOG_LIMIT = 50;
+export const CLIPBOARD_REPLAY_CACHE_LIMIT_BYTES = 8 * 1024 * 1024;
 const TEXT_PREVIEW_LIMIT = 48;
 
 let events = [];
 let listeners = new Set();
+let replayTextByEventId = new Map();
+let replayTextBytes = 0;
 
 const now = () => Date.now();
 
@@ -79,9 +82,69 @@ const notifyListeners = () => {
   listeners.forEach(listener => listener(snapshot));
 };
 
+const utf8ByteLength = value => {
+  let byteLength = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x7f) {
+      byteLength += 1;
+    } else if (codePoint <= 0x7ff) {
+      byteLength += 2;
+    } else if (codePoint <= 0xffff) {
+      byteLength += 3;
+    } else {
+      byteLength += 4;
+    }
+  }
+  return byteLength;
+};
+
+const removeReplayText = eventId => {
+  const cached = replayTextByEventId.get(eventId);
+  if (!cached) {
+    return;
+  }
+
+  replayTextBytes -= cached.sizeBytes;
+  replayTextByEventId.delete(eventId);
+};
+
+const storeReplayText = (eventId, type, content) => {
+  removeReplayText(eventId);
+  if (type !== 'text' || content === undefined || content === null) {
+    return;
+  }
+
+  const text = String(content);
+  const sizeBytes = utf8ByteLength(text);
+  if (sizeBytes > CLIPBOARD_REPLAY_CACHE_LIMIT_BYTES) {
+    return;
+  }
+
+  replayTextByEventId.set(eventId, { text, sizeBytes });
+  replayTextBytes += sizeBytes;
+
+  while (replayTextBytes > CLIPBOARD_REPLAY_CACHE_LIMIT_BYTES) {
+    const oldestEventId = replayTextByEventId.keys().next().value;
+    removeReplayText(oldestEventId);
+  }
+};
+
+const pruneReplayText = () => {
+  const retainedEventIds = new Set(events.map(event => event.id));
+  for (const eventId of replayTextByEventId.keys()) {
+    if (!retainedEventIds.has(eventId)) {
+      removeReplayText(eventId);
+    }
+  }
+};
+
 const toPublicEvent = event => {
   const { operationKey, ...publicEvent } = event;
-  return publicEvent;
+  return {
+    ...publicEvent,
+    replayable: replayTextByEventId.has(event.id),
+  };
 };
 
 export const appendClipboardEvent = eventInput => {
@@ -114,12 +177,16 @@ export const appendClipboardEvent = eventInput => {
         updatedEvent,
         ...events.filter((_, index) => index !== existingIndex),
       ].slice(0, CLIPBOARD_EVENT_LOG_LIMIT);
+      storeReplayText(updatedEvent.id, eventInput.type, eventInput.content);
+      pruneReplayText();
       notifyListeners();
       return toPublicEvent(updatedEvent);
     }
   }
 
   events = [event, ...events].slice(0, CLIPBOARD_EVENT_LOG_LIMIT);
+  storeReplayText(event.id, eventInput.type, eventInput.content);
+  pruneReplayText();
   notifyListeners();
   return toPublicEvent(event);
 };
@@ -127,8 +194,13 @@ export const appendClipboardEvent = eventInput => {
 export const getClipboardEvents = () =>
   events.map(event => ({ ...toPublicEvent(event) }));
 
+export const getReplayableText = eventId =>
+  replayTextByEventId.get(eventId)?.text;
+
 export const clearClipboardEvents = () => {
   events = [];
+  replayTextByEventId = new Map();
+  replayTextBytes = 0;
   notifyListeners();
 };
 

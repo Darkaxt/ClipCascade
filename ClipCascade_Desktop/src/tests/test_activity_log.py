@@ -59,6 +59,42 @@ class ActivityLogTest(unittest.TestCase):
         self.assertIn("Activity: Local Text Sent via P2S", output)
         self.assertNotIn("super secret", output)
 
+    def test_keeps_replay_text_private_from_activity_rows(self):
+        log = ActivityLog(max_rows=3)
+
+        row = log.append(
+            "Local",
+            "Text",
+            "Sent",
+            "secret preview",
+            "P2S",
+            replay_text="full secret clipboard value",
+        )
+
+        self.assertTrue(row.replayable)
+        self.assertFalse(hasattr(row, "replay_text"))
+        self.assertEqual(log.get_replay_text(row.event_id), "full secret clipboard value")
+
+    def test_replay_cache_evicts_oldest_payload_under_byte_budget(self):
+        log = ActivityLog(max_rows=3, replay_cache_limit_bytes=10)
+
+        oldest = log.append("Local", "Text", "Sent", "first", replay_text="123456")
+        newest = log.append("Local", "Text", "Sent", "second", replay_text="abcdef")
+
+        rows = {row.event_id: row for row in log.snapshot()}
+        self.assertIsNone(log.get_replay_text(oldest.event_id))
+        self.assertEqual(log.get_replay_text(newest.event_id), "abcdef")
+        self.assertFalse(rows[oldest.event_id].replayable)
+        self.assertTrue(rows[newest.event_id].replayable)
+
+    def test_clearing_activity_clears_replay_payloads(self):
+        log = ActivityLog(max_rows=3)
+        row = log.append("Remote", "Text", "Applied", "value", replay_text="value")
+
+        log.clear()
+
+        self.assertIsNone(log.get_replay_text(row.event_id))
+
     def test_duplicate_payload_ignored_is_shown_as_suppressed(self):
         log = ActivityLog(max_rows=3)
 

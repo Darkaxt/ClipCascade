@@ -1,9 +1,11 @@
 import unittest
+import types
 from unittest.mock import patch
 
 from core.config import Config
 from clipboard.clipboard_manager import ClipboardManager
 from stomp_ws.stomp_manager import STOMPManager
+from utils.activity_log import ActivityLog
 
 
 class InvalidSessionRequestManager:
@@ -75,6 +77,23 @@ class FakeClient:
 
 
 class STOMPManagerSessionTests(unittest.TestCase):
+    def test_text_transport_rows_retain_private_replay_payload(self):
+        activity_log = ActivityLog()
+        holder = types.SimpleNamespace(activity_log=activity_log)
+
+        STOMPManager.append_activity(
+            holder,
+            "Remote",
+            "text",
+            "Received",
+            "preview",
+            replay_text="full stomp text",
+        )
+
+        row = activity_log.snapshot()[0]
+        self.assertTrue(row.replayable)
+        self.assertEqual(activity_log.get_replay_text(row.event_id), "full stomp text")
+
     def test_connect_stops_before_websocket_when_saved_session_expired(self):
         config = Config()
         config.data.update(

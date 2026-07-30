@@ -45,6 +45,12 @@ class TaskbarPanel:
         self.github_url = github_url
         self.donation_url = donation_url
         self.ws_interface = ws_interface
+        clipboard_manager = getattr(ws_interface, "clipboard_manager", None)
+        self.copy_text_locally = getattr(
+            clipboard_manager,
+            "copy_text_locally",
+            None,
+        )
         self.config = config
         self.activity_log = activity_log or ActivityLog()
 
@@ -337,6 +343,7 @@ class TaskbarPanel:
                     self.activity_log,
                     master=self.root,
                     on_close=mark_inactive,
+                    copy_text_locally=self.copy_text_locally,
                 )
             except Exception as e:
                 mark_inactive()

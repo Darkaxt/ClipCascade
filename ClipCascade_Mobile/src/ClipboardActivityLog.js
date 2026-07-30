@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import { Copy } from 'lucide-react-native';
+import {
+  StyleSheet,
+  Text,
+  ToastAndroid,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 import {
   getClipboardEvents,
+  getReplayableText,
   subscribeClipboardEvents,
 } from './ClipboardEventLog';
+import { setDataInAsyncStorage } from './AsyncStorageManagement';
+import { copyReplayTextLocally } from './LocalClipboardReplay';
 
 const directionLabels = {
   inbound: 'Inbound',
@@ -36,6 +47,29 @@ export default function ClipboardActivityLog() {
 
   useEffect(() => subscribeClipboardEvents(setEvents), []);
 
+  const copyLocally = async eventId => {
+    const result = await copyReplayTextLocally({
+      eventId,
+      getReplayableText,
+      setValue: setDataInAsyncStorage,
+      setClipboardText: Clipboard.setString,
+    });
+
+    if (result.copied) {
+      ToastAndroid.show(
+        'Copied locally - not synced',
+        ToastAndroid.SHORT,
+      );
+    } else if (result.reason === 'unavailable') {
+      ToastAndroid.show(
+        'Clipboard entry is no longer available',
+        ToastAndroid.SHORT,
+      );
+    } else {
+      ToastAndroid.show('Unable to copy clipboard entry', ToastAndroid.SHORT);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Recent Clipboard Activity</Text>
@@ -64,6 +98,19 @@ export default function ClipboardActivityLog() {
               </View>
               <View style={styles.statusPill}>
                 <Text style={styles.statusText}>{event.status}</Text>
+              </View>
+              <View style={styles.actionColumn}>
+                {event.replayable ? (
+                  <TouchableOpacity
+                    accessibilityLabel="Copy locally without syncing"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => copyLocally(event.id)}
+                    style={styles.copyButton}
+                  >
+                    <Copy color="#78c7dd" size={19} strokeWidth={2} />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </View>
           ))}
@@ -146,5 +193,16 @@ const styles = StyleSheet.create({
     color: '#78c7dd',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  actionColumn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 32,
+  },
+  copyButton: {
+    alignItems: 'center',
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
 });

@@ -761,6 +761,7 @@ class P2PManager(WSInterface):
 
     async def _send(self, payload: str, payload_type: str = "text"):
         try:
+            replay_text = payload if payload_type.lower() == "text" else None
             if self.clipboard_manager.has_clipboard_changed(payload):
                 preview = ActivityLog.preview_payload(payload, payload_type)
                 self.reset_sending_fragment_id()
@@ -807,7 +808,13 @@ class P2PManager(WSInterface):
                         )
                 else:
                     self.reset_sending_fragment_id()
-                    self.append_activity("Local", payload_type, "Sent", preview)
+                    self.append_activity(
+                        "Local",
+                        payload_type,
+                        "Sent",
+                        preview,
+                        replay_text=replay_text,
+                    )
             else:
                 self.append_activity(
                     "Local",
@@ -815,6 +822,7 @@ class P2PManager(WSInterface):
                     "Ignored",
                     ActivityLog.preview_payload(payload, payload_type),
                     "Duplicate payload",
+                    replay_text=replay_text,
                 )
 
         except Exception as e:
@@ -878,7 +886,14 @@ class P2PManager(WSInterface):
                 )
 
             preview = ActivityLog.preview_payload(payload, payload_type)
-            self.append_activity("Remote", payload_type, "Received", preview)
+            replay_text = payload if payload_type.lower() == "text" else None
+            self.append_activity(
+                "Remote",
+                payload_type,
+                "Received",
+                preview,
+                replay_text=replay_text,
+            )
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
                 self.clipboard_manager.base64_to_clipboard(
@@ -886,7 +901,12 @@ class P2PManager(WSInterface):
                 )
             else:
                 self.append_activity(
-                    "Remote", payload_type, "Ignored", preview, "Duplicate payload"
+                    "Remote",
+                    payload_type,
+                    "Ignored",
+                    preview,
+                    "Duplicate payload",
+                    replay_text=replay_text,
                 )
         except json.decoder.JSONDecodeError:
             logging.error("If cipher is enabled, please make sure it is enabled on all devices")
@@ -908,6 +928,7 @@ class P2PManager(WSInterface):
         status: str,
         preview: str = "",
         detail: str = "",
+        replay_text: str = None,
     ):
         if self.activity_log is not None:
             self.activity_log.append(
@@ -917,6 +938,7 @@ class P2PManager(WSInterface):
                 preview=preview,
                 transport="P2P",
                 detail=detail,
+                replay_text=replay_text,
             )
 
     @staticmethod

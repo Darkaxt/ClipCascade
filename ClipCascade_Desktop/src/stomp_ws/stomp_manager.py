@@ -149,6 +149,7 @@ class STOMPManager(WSInterface):
     def send(self, payload: str, payload_type: str = "text"):
         try:
             if self.is_connected:
+                replay_text = payload if payload_type.lower() == "text" else None
                 if self.clipboard_manager.has_clipboard_changed(payload):
                     preview = ActivityLog.preview_payload(payload, payload_type)
                     if self.config.data["cipher_enabled"]:
@@ -162,6 +163,7 @@ class STOMPManager(WSInterface):
                         payload_type,
                         "Sent",
                         preview,
+                        replay_text=replay_text,
                     )
                 else:
                     self.append_activity(
@@ -170,6 +172,7 @@ class STOMPManager(WSInterface):
                         "Ignored",
                         ActivityLog.preview_payload(payload, payload_type),
                         "Duplicate payload",
+                        replay_text=replay_text,
                     )
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
@@ -187,14 +190,26 @@ class STOMPManager(WSInterface):
                     )
 
                 preview = ActivityLog.preview_payload(payload, payload_type)
-                self.append_activity("Remote", payload_type, "Received", preview)
+                replay_text = payload if payload_type.lower() == "text" else None
+                self.append_activity(
+                    "Remote",
+                    payload_type,
+                    "Received",
+                    preview,
+                    replay_text=replay_text,
+                )
                 if self.clipboard_manager.has_clipboard_changed(payload):
                     self.clipboard_manager.base64_to_clipboard(
                         base64_string=payload, type_=payload_type
                     )
                 else:
                     self.append_activity(
-                        "Remote", payload_type, "Ignored", preview, "Duplicate payload"
+                        "Remote",
+                        payload_type,
+                        "Ignored",
+                        preview,
+                        "Duplicate payload",
+                        replay_text=replay_text,
                     )
         except json.decoder.JSONDecodeError:
             logging.error(
@@ -218,6 +233,7 @@ class STOMPManager(WSInterface):
         status: str,
         preview: str = "",
         detail: str = "",
+        replay_text: str = None,
     ):
         if self.activity_log is not None:
             self.activity_log.append(
@@ -227,6 +243,7 @@ class STOMPManager(WSInterface):
                 preview=preview,
                 transport="P2S",
                 detail=detail,
+                replay_text=replay_text,
             )
 
     def manual_reconnect(self):

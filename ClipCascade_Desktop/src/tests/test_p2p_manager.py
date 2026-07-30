@@ -1,9 +1,11 @@
 import unittest
+import types
 from unittest.mock import patch
 
 from core.config import Config
 from clipboard.clipboard_manager import ClipboardManager
 from p2p.p2p_manager import P2PManager
+from utils.activity_log import ActivityLog
 
 
 class InvalidSessionRequestManager:
@@ -22,6 +24,23 @@ class InvalidSessionRequestManager:
 
 
 class P2PManagerSessionTests(unittest.TestCase):
+    def test_text_transport_rows_retain_private_replay_payload(self):
+        activity_log = ActivityLog()
+        holder = types.SimpleNamespace(activity_log=activity_log)
+
+        P2PManager.append_activity(
+            holder,
+            "Local",
+            "text",
+            "Sent",
+            "preview",
+            replay_text="full p2p text",
+        )
+
+        row = activity_log.snapshot()[0]
+        self.assertTrue(row.replayable)
+        self.assertEqual(activity_log.get_replay_text(row.event_id), "full p2p text")
+
     def test_connect_stops_before_signaling_socket_when_saved_session_invalid(self):
         config = Config()
         config.data.update(
