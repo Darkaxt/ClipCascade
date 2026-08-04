@@ -130,16 +130,34 @@ class Application:
             validation_result = self.request_manager.validate_session_result()
             if validation_result.valid is False and self.request_manager.has_api_key():
                 self._clear_rejected_api_auth(validation_result.summary())
-            else:
+            elif validation_result.valid is not False:
                 try:
                     self._configure_encryption_key()
-                    self._configure_server_connection()
-                    ws_conn_successful, msg = self._get_ws_manager().connect()
-                    if ws_conn_successful:
-                        self._get_ws_manager().is_login_phase = False
-                        return
                 except Exception as e:
-                    logging.warning(f"Saved authentication could not connect: {e}")
+                    logging.warning(f"Saved encryption configuration is unusable: {e}")
+                else:
+                    try:
+                        self._configure_server_connection()
+                    except Exception as e:
+                        logging.warning(
+                            "Could not refresh server configuration; using the saved "
+                            f"connection settings: {e}"
+                        )
+
+                    ws_manager = self._get_ws_manager()
+                    ws_manager.is_login_phase = False
+                    try:
+                        ws_conn_successful, msg = ws_manager.connect()
+                    except Exception as e:
+                        ws_conn_successful = False
+                        msg = str(e)
+
+                    if not ws_conn_successful:
+                        logging.warning(
+                            "Saved authentication retained while the server is "
+                            f"unavailable; reconnect will continue without login: {msg}"
+                        )
+                    return
 
         # enable login form
         used_saved_credentials = False
