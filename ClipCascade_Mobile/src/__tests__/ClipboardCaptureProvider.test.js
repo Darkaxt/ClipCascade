@@ -5,6 +5,7 @@ import {
   isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
+  shouldRetryPausedShizukuCapture,
 } from '../ClipboardCaptureProvider';
 
 describe('clipboard capture provider selection', () => {
@@ -82,6 +83,24 @@ describe('clipboard capture provider selection', () => {
       automaticCaptureEnabled: false,
       shouldNotifyUnavailable: true,
     });
+  });
+
+  test('does not retry a stable unsupported Shizuku clipboard backend', () => {
+    expect(
+      shouldRetryPausedShizukuCapture({
+        pauseStatus: 'unsupported',
+        nativeStatus: 'connected',
+      }),
+    ).toBe(false);
+  });
+
+  test('retries a paused Shizuku backend after connectivity recovers', () => {
+    expect(
+      shouldRetryPausedShizukuCapture({
+        pauseStatus: 'disconnected',
+        nativeStatus: 'connected',
+      }),
+    ).toBe(true);
   });
 
   test('describes unavailable strict-mode states for UI and notifications', () => {

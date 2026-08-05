@@ -40,7 +40,6 @@ class ShizukuClipboardModule(
         private const val ICLIPBOARD_DESCRIPTOR = "android.content.IClipboard"
         private const val TRANSACTION_GET_PRIMARY_CLIP = IBinder.FIRST_CALL_TRANSACTION + 3
         private const val SHELL_PACKAGE = "com.android.shell"
-        private const val DEFAULT_DEVICE_ID = 0
     }
 
     private val listening = AtomicBoolean(false)
@@ -293,8 +292,10 @@ class ShizukuClipboardModule(
             data.writeInterfaceToken(ICLIPBOARD_DESCRIPTOR)
             data.writeString(SHELL_PACKAGE)
             data.writeString(null)
-            data.writeInt(currentUserId())
-            data.writeInt(DEFAULT_DEVICE_ID)
+            ShizukuClipboardBinderContract.getPrimaryClipIntArguments(
+                sdkInt = Build.VERSION.SDK_INT,
+                userId = currentUserId()
+            ).forEach(data::writeInt)
 
             if (!binder.transact(TRANSACTION_GET_PRIMARY_CLIP, data, reply, 0)) {
                 throw NoSuchMethodException("IClipboard.getPrimaryClip transaction unavailable")

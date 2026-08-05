@@ -63,6 +63,13 @@ export const resolveClipboardCaptureProvider = ({
   };
 };
 
+export const shouldRetryPausedShizukuCapture = ({
+  pauseStatus,
+  nativeStatus,
+}) =>
+  normalizeShizukuStatus(pauseStatus) !== SHIZUKU_STATUS.UNSUPPORTED &&
+  normalizeShizukuStatus(nativeStatus) === SHIZUKU_STATUS.CONNECTED;
+
 export const getClipboardCaptureUnavailableMessage = status => {
   switch (normalizeShizukuStatus(status)) {
     case SHIZUKU_STATUS.PERMISSION_PENDING:

@@ -54,6 +54,7 @@ import {
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
   SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE,
+  shouldRetryPausedShizukuCapture,
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 
@@ -635,6 +636,7 @@ module.exports = async (inputData = null) => {
         let shizukuStatusOnChange = null;
         let activeClipboardModule = null;
         let activeClipboardBackend = 'legacy';
+        let pausedShizukuStatus = null;
 
         const setClipboardCaptureStatus = async ({
           backend,
@@ -716,6 +718,7 @@ module.exports = async (inputData = null) => {
             });
           }
           activeClipboardBackend = provider.backend;
+          pausedShizukuStatus = provider.shizukuStatus;
           await setClipboardCaptureStatus(provider);
 
           const statusMessage = getClipboardCaptureStatusMessage(
@@ -890,6 +893,8 @@ module.exports = async (inputData = null) => {
             return;
           }
 
+          pausedShizukuStatus = null;
+
           clipboardOnChange = clipboardListener.addListener(
             'onClipboardChange',
             handleAutomaticClipboardChange,
@@ -907,6 +912,7 @@ module.exports = async (inputData = null) => {
                 });
                 if (nextStatus === 'connected') {
                   activeClipboardBackend = 'shizuku';
+                  pausedShizukuStatus = null;
                   await setClipboardCaptureStatus({
                     backend: 'shizuku',
                     shizukuStatus: 'connected',
@@ -2359,10 +2365,17 @@ module.exports = async (inputData = null) => {
             }
             if (
               runtimeSettings.enable_shizuku_clipboard_backend === 'true' &&
-              activeClipboardBackend === 'paused' &&
-              (await getNativeShizukuStatus()) === 'connected'
+              activeClipboardBackend === 'paused'
             ) {
-              await startAutomaticClipboardCapture();
+              const nativeShizukuStatus = await getNativeShizukuStatus();
+              if (
+                shouldRetryPausedShizukuCapture({
+                  pauseStatus: pausedShizukuStatus,
+                  nativeStatus: nativeShizukuStatus,
+                })
+              ) {
+                await startAutomaticClipboardCapture();
+              }
             }
 
             // check if wsIsRunning is true or else terminate the service
