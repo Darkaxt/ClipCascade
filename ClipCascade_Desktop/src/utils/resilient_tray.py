@@ -59,6 +59,23 @@ if sys.platform == "win32":
         def _show(self):
             return self._add_registration()
 
+        def ensure_registration(self):
+            """Refresh the native icon and recreate it if Explorer lost it."""
+            if not self.visible:
+                return False
+
+            self._assert_icon_handle()
+            refreshed = self._message(
+                win32.NIM_MODIFY,
+                win32.NIF_ICON | win32.NIF_TIP,
+                hIcon=self._icon_handle,
+                szTip=self.title,
+            )
+            if not refreshed:
+                refreshed = self._add_registration()
+            self._icon_valid = refreshed
+            return refreshed
+
         def _update_icon(self):
             self._release_icon()
             self._assert_icon_handle()

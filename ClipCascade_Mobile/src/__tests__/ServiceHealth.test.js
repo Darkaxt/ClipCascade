@@ -4,6 +4,7 @@ import {
   normalizeRuntimeSettings,
   shouldAutoRecoverForegroundService,
   shouldPersistStoppedStateAfterSessionValidation,
+  shouldRestartDisconnectedStomp,
 } from '../ServiceHealth';
 
 describe('service health decisions', () => {
@@ -65,5 +66,71 @@ describe('runtime settings normalization', () => {
       enable_websocket_status_notification: 'true',
       max_clipboard_size_local_limit_bytes: 268435456,
     });
+  });
+});
+
+describe('STOMP connection recovery', () => {
+  test('restarts an inactive disconnected client immediately', () => {
+    expect(
+      shouldRestartDisconnectedStomp({
+        connected: false,
+        active: false,
+        disconnectedSince: 1000,
+        lastRecoveryAt: 0,
+        now: 1001,
+        recoveryIntervalMs: 60000,
+      }),
+    ).toBe(true);
+  });
+
+  test('restarts a stalled active client after the recovery heartbeat', () => {
+    expect(
+      shouldRestartDisconnectedStomp({
+        connected: false,
+        active: true,
+        disconnectedSince: 1000,
+        lastRecoveryAt: 0,
+        now: 61000,
+        recoveryIntervalMs: 60000,
+      }),
+    ).toBe(true);
+  });
+
+  test('leaves connected and recently retrying clients alone', () => {
+    const base = {
+      disconnectedSince: 1000,
+      lastRecoveryAt: 0,
+      recoveryIntervalMs: 60000,
+    };
+
+    expect(
+      shouldRestartDisconnectedStomp({
+        ...base,
+        connected: true,
+        active: true,
+        now: 61000,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRestartDisconnectedStomp({
+        ...base,
+        connected: false,
+        active: true,
+        now: 60999,
+      }),
+    ).toBe(false);
+  });
+
+  test('spaces forced recovery attempts by the heartbeat interval', () => {
+    expect(
+      shouldRestartDisconnectedStomp({
+        connected: false,
+        active: true,
+        disconnectedSince: 1000,
+        lastRecoveryAt: 61000,
+        now: 120999,
+        recoveryIntervalMs: 60000,
+      }),
+    ).toBe(false);
   });
 });

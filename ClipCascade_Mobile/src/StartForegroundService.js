@@ -28,6 +28,7 @@ import {
 import {
   normalizeRuntimeSettings,
   resolveClipboardLimit,
+  shouldRestartDisconnectedStomp,
 } from './ServiceHealth';
 import {
   appendClipboardEvent,
@@ -62,6 +63,7 @@ const FOREGROUND_NOTIFICATION_CHANNEL_ID = 'ClipCascade_Foreground_Service';
 const FOREGROUND_NOTIFICATION_ID =
   'ClipCascade_Foreground_Service_Notification_Id';
 const FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS = 60000;
+const STOMP_RECOVERY_CHECK_INTERVAL_MS = 60000;
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -185,6 +187,8 @@ module.exports = async (inputData = null) => {
         let p2pMsg = null; // p2p status message
 
         let stompClient = null;
+        let stompDisconnectedSince = null;
+        let lastStompRecoveryAt = 0;
         let wsSignalingClient = null;
         let sendClipBoardP2S = null;
         let sendClipBoardP2P = null;
@@ -977,6 +981,13 @@ module.exports = async (inputData = null) => {
         };
 
         if (server_mode === 'P2S') {
+          stompDisconnectedSince = Date.now();
+          const markStompDisconnected = () => {
+            if (stompDisconnectedSince == null) {
+              stompDisconnectedSince = Date.now();
+            }
+          };
+
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
@@ -989,6 +1000,8 @@ module.exports = async (inputData = null) => {
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
             onConnect: async () => {
               logServiceLifecycle('STOMP connected');
+              stompDisconnectedSince = null;
+              lastStompRecoveryAt = 0;
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
               // Subscribe to a topic
@@ -1096,10 +1109,12 @@ module.exports = async (inputData = null) => {
             },
             onDisconnect: async () => {
               logServiceLifecycle('STOMP disconnected');
+              markStompDisconnected();
               await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
             },
             onStompError: async frame => {
+              markStompDisconnected();
               warnServiceLifecycle('STOMP error', {
                 command: frame?.command,
                 headers: frame?.headers,
@@ -1112,6 +1127,7 @@ module.exports = async (inputData = null) => {
               );
             },
             onWebSocketError: async event => {
+              markStompDisconnected();
               warnServiceLifecycle('WebSocket error', event);
               await resetLocalClipboardEchoGuards();
               await setDataInAsyncStorage(
@@ -1120,6 +1136,7 @@ module.exports = async (inputData = null) => {
               );
             },
             onWebSocketClose: async event => {
+              markStompDisconnected();
               warnServiceLifecycle('WebSocket closed', {
                 code: event?.code,
                 reason: event?.reason,
@@ -2389,6 +2406,39 @@ module.exports = async (inputData = null) => {
                 'true',
               );
               break;
+            }
+
+            if (
+              server_mode === 'P2S' &&
+              stompClient &&
+              shouldRestartDisconnectedStomp({
+                connected: stompClient.connected,
+                active: stompClient.active,
+                disconnectedSince: stompDisconnectedSince,
+                lastRecoveryAt: lastStompRecoveryAt,
+                now: Date.now(),
+                recoveryIntervalMs: STOMP_RECOVERY_CHECK_INTERVAL_MS,
+              })
+            ) {
+              lastStompRecoveryAt = Date.now();
+              warnServiceLifecycle(
+                'STOMP recovery heartbeat restarting disconnected client',
+                {
+                  active: stompClient.active,
+                  disconnectedSince: stompDisconnectedSince,
+                },
+              );
+              try {
+                if (stompClient.active) {
+                  await stompClient.deactivate();
+                }
+                stompClient.activate();
+              } catch (error) {
+                warnServiceLifecycle(
+                  'STOMP recovery heartbeat failed',
+                  error,
+                );
+              }
             }
 
             if (isP2PStatusMsgChanged) {

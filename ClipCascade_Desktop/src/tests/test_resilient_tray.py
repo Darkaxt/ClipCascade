@@ -64,6 +64,17 @@ class ResilientTrayTest(unittest.TestCase):
 
         self.assertEqual([call[0] for call in icon.calls], [win32.NIM_ADD])
 
+    def test_registration_heartbeat_readds_missing_tray_icon(self):
+        icon = ResilientIconHarness([False, True])
+
+        result = icon.ensure_registration()
+
+        self.assertTrue(result)
+        self.assertEqual(
+            [call[0] for call in icon.calls],
+            [win32.NIM_MODIFY, win32.NIM_ADD],
+        )
+
     def test_failed_native_registration_is_logged(self):
         with mock.patch(
             "utils.resilient_tray.ctypes.get_last_error",

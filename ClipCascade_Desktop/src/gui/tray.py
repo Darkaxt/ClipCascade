@@ -25,6 +25,9 @@ if PLATFORM != WINDOWS:
     import subprocess
 
 
+TRAY_REGISTRATION_HEARTBEAT_SECONDS = 30
+
+
 class TaskbarPanel:
     def __init__(
         self,
@@ -216,12 +219,26 @@ class TaskbarPanel:
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
 
     def _update_stats_thread(self):
+        next_tray_registration_heartbeat = (
+            time.monotonic() + TRAY_REGISTRATION_HEARTBEAT_SECONDS
+        )
         while True:
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats
                 self.previous_stats_items = (current_stats, 0, None)
                 self.update_menu()
+            if (
+                PLATFORM == WINDOWS
+                and time.monotonic() >= next_tray_registration_heartbeat
+            ):
+                try:
+                    self.icon.ensure_registration()
+                except Exception as e:
+                    logging.warning(f"Windows tray registration heartbeat failed: {e}")
+                next_tray_registration_heartbeat = (
+                    time.monotonic() + TRAY_REGISTRATION_HEARTBEAT_SECONDS
+                )
             time.sleep(1)  # Sleep for 1 second
 
     @staticmethod

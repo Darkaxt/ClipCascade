@@ -82,6 +82,26 @@ export const normalizeRuntimeSettings = (
   ),
 });
 
+export const shouldRestartDisconnectedStomp = ({
+  connected,
+  active,
+  disconnectedSince,
+  lastRecoveryAt,
+  now,
+  recoveryIntervalMs,
+}) => {
+  if (connected || disconnectedSince == null) {
+    return false;
+  }
+
+  if (!active) {
+    return true;
+  }
+
+  const recoveryAnchor = Math.max(disconnectedSince, lastRecoveryAt || 0);
+  return now - recoveryAnchor >= recoveryIntervalMs;
+};
+
 export const probeForegroundService = async ({
   setData,
   getData,
