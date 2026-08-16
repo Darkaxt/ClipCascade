@@ -25,6 +25,18 @@ def _android_version_code(version):
 
 
 class ReleaseVersionConsistencyTests(unittest.TestCase):
+    def test_android_display_name_is_unbranded_clipcascade(self):
+        app_config = json.loads(_read_text("ClipCascade_Mobile/src/app.json"))
+        self.assertEqual("ClipCascade", app_config["displayName"])
+
+        android_strings = _read_text(
+            "ClipCascade_Mobile/src/android/app/src/main/res/values/strings.xml"
+        )
+        self.assertIn('<string name="app_name">ClipCascade</string>', android_strings)
+
+        app_source = _read_text("ClipCascade_Mobile/src/App.js")
+        self.assertIn("const APP_NAME = 'ClipCascade';", app_source)
+
     def test_all_client_metadata_matches_the_release_version(self):
         versions = json.loads(_read_text("version.json"))
         release_version = versions["windows"]

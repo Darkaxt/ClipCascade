@@ -119,7 +119,7 @@ export default function App() {
     'https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/version.json';
   const GITHUB_URL = 'https://github.com/Darkaxt/ClipCascade';
   const RELEASE_URL = 'https://github.com/Darkaxt/ClipCascade/releases/latest';
-  const APP_NAME = 'ClipCascade Darkaxt';
+  const APP_NAME = 'ClipCascade';
   const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
   const METADATA_URL =
     'https://raw.githubusercontent.com/Darkaxt/ClipCascade/main/metadata.json';
