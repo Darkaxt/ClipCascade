@@ -1,6 +1,7 @@
 let mockNativeEventListeners = {};
 let mockNativeModules;
 let mockWsIsRunning = true;
+let mockForegroundServiceCallback;
 
 jest.mock('react-native', () => ({
   NativeEventEmitter: jest.fn().mockImplementation(() => ({
@@ -34,7 +35,9 @@ jest.mock('@notifee/react-native', () => ({
     cancelNotification: jest.fn(async () => {}),
     displayNotification: jest.fn(async () => {}),
     getDisplayedNotifications: jest.fn(async () => []),
-    registerForegroundService: jest.fn(),
+    registerForegroundService: jest.fn(callback => {
+      mockForegroundServiceCallback = callback;
+    }),
     stopForegroundService: jest.fn(async () => {}),
   },
 }));
@@ -181,8 +184,7 @@ describe('StartForegroundService notification contract', () => {
 
   test('does not require server self-echo before sending another P2S clipboard item', async () => {
     await StartForegroundService();
-    const foregroundCallback = notifee.registerForegroundService.mock.calls[0][0];
-    foregroundCallback({
+    const foregroundRun = mockForegroundServiceCallback({
       id: 'ClipCascade_Foreground_Service_Notification_Id',
     });
 
@@ -233,12 +235,51 @@ describe('StartForegroundService notification contract', () => {
     mockWsIsRunning = false;
     jest.advanceTimersByTime(1000);
     await Promise.resolve();
+    await foregroundRun;
+  });
+
+  test('deactivates the previous STOMP client before a replacement run connects', async () => {
+    await StartForegroundService();
+    const firstRun = mockForegroundServiceCallback({ id: 'first' });
+
+    for (
+      let attempts = 0;
+      attempts < 20 && !Client.mock.instances[0]?.activate;
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    const firstClient = Client.mock.instances[0];
+    await firstClient.activate.mock.results[0].value;
+    const replacementRun = mockForegroundServiceCallback({ id: 'replacement' });
+
+    jest.advanceTimersByTime(1000);
+    await firstRun;
+    for (
+      let attempts = 0;
+      attempts < 20 && !Client.mock.instances[1]?.activate;
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    const replacementClient = Client.mock.instances[1];
+    expect(firstClient.deactivate).toHaveBeenCalledTimes(1);
+    expect(replacementClient.activate).toHaveBeenCalledTimes(1);
+    expect(firstClient.deactivate.mock.invocationCallOrder[0]).toBeLessThan(
+      replacementClient.activate.mock.invocationCallOrder[0],
+    );
+
+    mockWsIsRunning = false;
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    await replacementRun;
   });
 
   test('does not send text restored from activity history', async () => {
     await StartForegroundService();
-    const foregroundCallback = notifee.registerForegroundService.mock.calls[0][0];
-    foregroundCallback({
+    const foregroundRun = mockForegroundServiceCallback({
       id: 'ClipCascade_Foreground_Service_Notification_Id',
     });
 
@@ -272,5 +313,9 @@ describe('StartForegroundService notification contract', () => {
         content: 'history-only text',
       }),
     );
+    mockWsIsRunning = false;
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    await foregroundRun;
   });
 });

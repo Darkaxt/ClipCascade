@@ -58,12 +58,14 @@ import {
   shouldRetryPausedShizukuCapture,
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
+import { createForegroundServiceLifecycle } from './ForegroundServiceLifecycle';
 
 const FOREGROUND_NOTIFICATION_CHANNEL_ID = 'ClipCascade_Foreground_Service';
 const FOREGROUND_NOTIFICATION_ID =
   'ClipCascade_Foreground_Service_Notification_Id';
 const FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS = 60000;
 const STOMP_RECOVERY_CHECK_INTERVAL_MS = 60000;
+const foregroundServiceLifecycle = createForegroundServiceLifecycle();
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -153,8 +155,9 @@ module.exports = async (inputData = null) => {
   const FRAGMENT_SIZE = 15360; // 15 KiB
 
   // forground service
-  notifee.registerForegroundService(notification => {
-    return new Promise(async () => {
+  foregroundServiceLifecycle.register(
+    callback => notifee.registerForegroundService(callback),
+    async (notification, serviceRun) => {
       try {
         logServiceLifecycle('foreground callback started', {
           notificationId: notification?.id,
@@ -1307,7 +1310,9 @@ module.exports = async (inputData = null) => {
           };
 
           // stop events and connection P2S
-          stopServicesP2S = async () => {
+          stopServicesP2S = async (
+            { stopForegroundService = true, updateStatus = true } = {},
+          ) => {
             // 1) Stop clipboard listening
             await stopActiveClipboardCapture();
 
@@ -1330,9 +1335,16 @@ module.exports = async (inputData = null) => {
             }
             stompClient = null;
 
-            await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
+            if (updateStatus) {
+              await setDataInAsyncStorage(
+                'wsStatusMessage',
+                '✅ Disconnected',
+              );
+            }
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
+            if (stopForegroundService) {
+              await notifee.stopForegroundService();
+            }
           };
         } else if (server_mode === 'P2P') {
           // p2p variables
@@ -1772,7 +1784,9 @@ module.exports = async (inputData = null) => {
           };
 
           // stop events and connection P2P
-          stopServicesP2P = async () => {
+          stopServicesP2P = async (
+            { stopForegroundService = true, updateStatus = true } = {},
+          ) => {
             // 1) Stop listening to clipboard events
             await stopActiveClipboardCapture();
 
@@ -1797,10 +1811,17 @@ module.exports = async (inputData = null) => {
             await cleanupPeerConnections();
 
             // 4) Finally, stop the foreground service
-            await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
-            await setDataInAsyncStorage('p2pStatusMessage', '');
+            if (updateStatus) {
+              await setDataInAsyncStorage(
+                'wsStatusMessage',
+                '✅ Disconnected',
+              );
+              await setDataInAsyncStorage('p2pStatusMessage', '');
+            }
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
+            if (stopForegroundService) {
+              await notifee.stopForegroundService();
+            }
           };
 
           // send message to websocket signaling server
@@ -2325,11 +2346,11 @@ module.exports = async (inputData = null) => {
         await startAutomaticClipboardCapture();
 
         // terminate service when wsIsRunning is false
-        const stopServices = async () => {
+        const stopServices = async options => {
           if (server_mode === 'P2S') {
-            await stopServicesP2S();
+            await stopServicesP2S(options);
           } else if (server_mode === 'P2P') {
-            await stopServicesP2P();
+            await stopServicesP2P(options);
           }
 
           cleanupClipboardListeners();
@@ -2353,6 +2374,17 @@ module.exports = async (inputData = null) => {
           ];
 
           while (true) {
+            if (serviceRun.isCancellationRequested()) {
+              logServiceLifecycle(
+                'foreground run superseded; cleaning up transport',
+              );
+              await stopServices({
+                stopForegroundService: false,
+                updateStatus: false,
+              });
+              return;
+            }
+
             let latest;
             try {
               const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
@@ -2521,8 +2553,8 @@ module.exports = async (inputData = null) => {
         cleanupClipboardListeners();
         await notifee.stopForegroundService();
       }
-    });
-  });
+    },
+  );
 
   try {
     logServiceLifecycle('displaying foreground notification');
