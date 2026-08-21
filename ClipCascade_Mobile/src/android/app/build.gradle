@@ -83,8 +83,8 @@ android {
         applicationId "com.darkaxt.clipcascade"
         minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3020023
-        versionName "3.2.0.23"
+        versionCode 3020024
+        versionName "3.2.0.24"
     }
     signingConfigs {
         debug {

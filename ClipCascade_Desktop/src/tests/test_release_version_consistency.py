@@ -2,6 +2,7 @@ import json
 import re
 import tomllib
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -25,6 +26,22 @@ def _android_version_code(version):
 
 
 class ReleaseVersionConsistencyTests(unittest.TestCase):
+    def test_android_main_activity_is_excluded_from_recents(self):
+        manifest = ET.fromstring(
+            _read_text("ClipCascade_Mobile/src/android/app/src/main/AndroidManifest.xml")
+        )
+        android_namespace = "{http://schemas.android.com/apk/res/android}"
+        activities = manifest.findall("./application/activity")
+        main_activity = next(
+            activity
+            for activity in activities
+            if activity.get(f"{android_namespace}name") == ".MainActivity"
+        )
+
+        self.assertEqual(
+            "true", main_activity.get(f"{android_namespace}excludeFromRecents")
+        )
+
     def test_android_display_name_is_unbranded_clipcascade(self):
         app_config = json.loads(_read_text("ClipCascade_Mobile/src/app.json"))
         self.assertEqual("ClipCascade", app_config["displayName"])
