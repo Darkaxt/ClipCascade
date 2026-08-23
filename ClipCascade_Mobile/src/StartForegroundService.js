@@ -54,6 +54,9 @@ import {
   isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
   resolveClipboardCaptureProvider,
+  resolveShizukuStartupStatus,
+  SHIZUKU_BOOT_GRACE_HEALTH_CHECKS,
+  SHIZUKU_STATUS,
   SHIZUKU_URI_ACCESS_UNAVAILABLE_STATUS_MESSAGE,
   shouldRetryPausedShizukuCapture,
 } from './ClipboardCaptureProvider';
@@ -100,13 +103,14 @@ async function createForegroundNotificationChannel() {
   });
 }
 
-async function displayForegroundServiceNotification() {
+async function displayForegroundServiceNotification(data = undefined) {
   const channelId = await createForegroundNotificationChannel();
 
   await notifee.displayNotification({
     id: FOREGROUND_NOTIFICATION_ID,
     title: 'ClipCascade',
     body: 'Monitoring clipboard sync',
+    ...(data ? { data } : {}),
     android: {
       channelId,
       asForegroundService: true,
@@ -644,6 +648,10 @@ module.exports = async (inputData = null) => {
         let activeClipboardModule = null;
         let activeClipboardBackend = 'legacy';
         let pausedShizukuStatus = null;
+        let shizukuBootGraceChecksRemaining =
+          notification?.data?.launchReason === 'BOOT_COMPLETED'
+            ? SHIZUKU_BOOT_GRACE_HEALTH_CHECKS
+            : 0;
 
         const setClipboardCaptureStatus = async ({
           backend,
@@ -848,10 +856,17 @@ module.exports = async (inputData = null) => {
         const startAutomaticClipboardCapture = async () => {
           await stopActiveClipboardCapture();
 
-          const shizukuStatus =
+          const nativeShizukuStatus =
             runtimeSettings.enable_shizuku_clipboard_backend === 'true'
               ? await getNativeShizukuStatus()
               : 'disabled';
+          const shizukuStatus =
+            runtimeSettings.enable_shizuku_clipboard_backend === 'true'
+              ? resolveShizukuStartupStatus({
+                  nativeStatus: nativeShizukuStatus,
+                  bootGraceChecksRemaining: shizukuBootGraceChecksRemaining,
+                })
+              : nativeShizukuStatus;
           const provider = resolveClipboardCaptureProvider({
             enableShizukuClipboardBackend:
               runtimeSettings.enable_shizuku_clipboard_backend,
@@ -885,10 +900,17 @@ module.exports = async (inputData = null) => {
             activeClipboardModule,
           );
           const startResult = await activeClipboardModule.startListening();
-          const startStatus =
+          const nativeStartStatus =
             typeof startResult === 'string'
               ? startResult
               : startResult?.status || provider.shizukuStatus;
+          const startStatus =
+            provider.backend === 'shizuku'
+              ? resolveShizukuStartupStatus({
+                  nativeStatus: nativeStartStatus,
+                  bootGraceChecksRemaining: shizukuBootGraceChecksRemaining,
+                })
+              : nativeStartStatus;
           logServiceLifecycle('clipboard capture native listener started', {
             backend: provider.backend,
             startStatus,
@@ -901,6 +923,7 @@ module.exports = async (inputData = null) => {
           }
 
           pausedShizukuStatus = null;
+          shizukuBootGraceChecksRemaining = 0;
 
           clipboardOnChange = clipboardListener.addListener(
             'onClipboardChange',
@@ -920,6 +943,7 @@ module.exports = async (inputData = null) => {
                 if (nextStatus === 'connected') {
                   activeClipboardBackend = 'shizuku';
                   pausedShizukuStatus = null;
+                  shizukuBootGraceChecksRemaining = 0;
                   await setClipboardCaptureStatus({
                     backend: 'shizuku',
                     shizukuStatus: 'connected',
@@ -2416,14 +2440,31 @@ module.exports = async (inputData = null) => {
               runtimeSettings.enable_shizuku_clipboard_backend === 'true' &&
               activeClipboardBackend === 'paused'
             ) {
-              const nativeShizukuStatus = await getNativeShizukuStatus();
+              const reportedShizukuStatus = await getNativeShizukuStatus();
+              const nativeShizukuStatus = resolveShizukuStartupStatus({
+                nativeStatus: reportedShizukuStatus,
+                bootGraceChecksRemaining: 0,
+              });
               if (
                 shouldRetryPausedShizukuCapture({
                   pauseStatus: pausedShizukuStatus,
                   nativeStatus: nativeShizukuStatus,
                 })
               ) {
+                shizukuBootGraceChecksRemaining = 0;
                 await startAutomaticClipboardCapture();
+              } else if (
+                pausedShizukuStatus === SHIZUKU_STATUS.STARTUP_PENDING
+              ) {
+                if (
+                  nativeShizukuStatus !== SHIZUKU_STATUS.DISCONNECTED ||
+                  shizukuBootGraceChecksRemaining <= 0
+                ) {
+                  shizukuBootGraceChecksRemaining = 0;
+                  await handleShizukuPaused(nativeShizukuStatus);
+                } else {
+                  shizukuBootGraceChecksRemaining -= 1;
+                }
               }
             }
 
@@ -2558,7 +2599,10 @@ module.exports = async (inputData = null) => {
 
   try {
     logServiceLifecycle('displaying foreground notification');
-    await displayForegroundServiceNotification();
+    const notificationData = inputData?.launchReason
+      ? { launchReason: String(inputData.launchReason) }
+      : undefined;
+    await displayForegroundServiceNotification(notificationData);
 
     // Create a notification channel for download progress
     await notifee.createChannel({

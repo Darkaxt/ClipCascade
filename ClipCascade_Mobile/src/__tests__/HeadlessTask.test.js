@@ -93,6 +93,21 @@ describe('headless foreground service restart', () => {
     expect(StartForegroundService).not.toHaveBeenCalled();
   });
 
+  test('marks a boot-launched foreground service for Shizuku startup grace', async () => {
+    getDataFromAsyncStorage.mockImplementation(async key => {
+      if (key === 'relaunch_on_boot' || key === 'wsIsRunning') {
+        return 'true';
+      }
+      return null;
+    });
+
+    await runHeadlessTask({ event: 'BOOT_COMPLETED' });
+
+    expect(StartForegroundService).toHaveBeenCalledWith({
+      launchReason: 'BOOT_COMPLETED',
+    });
+  });
+
   test('restarts after an app update when monitoring was enabled', async () => {
     getDataFromAsyncStorage.mockImplementation(async key => {
       if (key === 'wsIsRunning') {

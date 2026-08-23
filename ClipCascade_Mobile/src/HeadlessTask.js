@@ -17,7 +17,7 @@ module.exports = async data => {
       return wsIsRunning_s === null ? 'false' : wsIsRunning_s;
     };
 
-    const restartForegroundService = async () => {
+    const restartForegroundService = async launchReason => {
       if ((await enableForegroundService()) === 'true') {
         console.log('ClipCascade HeadlessTask restarting foreground service');
         await setDataInAsyncStorage(
@@ -36,7 +36,7 @@ module.exports = async data => {
             error,
           );
         }
-        const result = await StartForegroundService();
+        const result = await StartForegroundService({ launchReason });
         if (result[0] === false) {
           console.warn(
             'ClipCascade HeadlessTask foreground restart failed:',
@@ -57,7 +57,7 @@ module.exports = async data => {
       data &&
       (data.event === 'SERVICE_INACTIVE' || data.event === 'PACKAGE_REPLACED')
     ) {
-      await restartForegroundService();
+      await restartForegroundService(data.event);
     } else if (data && data.event === 'BOOT_COMPLETED') {
       const relaunch_on_boot = await getDataFromAsyncStorage(
         'relaunch_on_boot',
@@ -67,7 +67,7 @@ module.exports = async data => {
         relaunch_on_boot,
       );
       if (relaunch_on_boot !== null && relaunch_on_boot === 'true') {
-        await restartForegroundService();
+        await restartForegroundService(data.event);
       }
     }
   } catch (e) {

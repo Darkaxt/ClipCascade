@@ -4,7 +4,9 @@ import {
   getClipboardCaptureUnavailableMessage,
   isClipboardCaptureStatusMessageClearableOnRecovery,
   isClipboardCaptureUnavailableStatusMessage,
+  resolveShizukuStartupStatus,
   resolveClipboardCaptureProvider,
+  SHIZUKU_BOOT_GRACE_HEALTH_CHECKS,
   shouldRetryPausedShizukuCapture,
 } from '../ClipboardCaptureProvider';
 
@@ -49,6 +51,41 @@ describe('clipboard capture provider selection', () => {
       automaticCaptureEnabled: false,
       shouldNotifyUnavailable: true,
     });
+  });
+
+  test('treats an initial boot disconnect as pending without hiding stable failures', () => {
+    expect(
+      resolveShizukuStartupStatus({
+        nativeStatus: 'disconnected',
+        bootGraceChecksRemaining: SHIZUKU_BOOT_GRACE_HEALTH_CHECKS,
+      }),
+    ).toBe('startup_pending');
+    expect(
+      resolveClipboardCaptureProvider({
+        enableShizukuClipboardBackend: 'true',
+        shizukuStatus: 'startup_pending',
+      }),
+    ).toEqual({
+      backend: 'paused',
+      shizukuStatus: 'startup_pending',
+      automaticCaptureEnabled: false,
+      shouldNotifyUnavailable: false,
+    });
+    expect(getClipboardCaptureStatusMessage('startup_pending')).toBe(
+      'Waiting for Shizuku to start',
+    );
+    expect(
+      resolveShizukuStartupStatus({
+        nativeStatus: 'not_authorized',
+        bootGraceChecksRemaining: SHIZUKU_BOOT_GRACE_HEALTH_CHECKS,
+      }),
+    ).toBe('not_authorized');
+    expect(
+      resolveShizukuStartupStatus({
+        nativeStatus: 'disconnected',
+        bootGraceChecksRemaining: 0,
+      }),
+    ).toBe('disconnected');
   });
 
   test('treats Shizuku permission approval as pending without denied notification', () => {

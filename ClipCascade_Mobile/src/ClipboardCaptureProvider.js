@@ -1,5 +1,6 @@
 export const SHIZUKU_STATUS = {
   DISABLED: 'disabled',
+  STARTUP_PENDING: 'startup_pending',
   PERMISSION_PENDING: 'permission_pending',
   NOT_INSTALLED: 'not_installed',
   NOT_AUTHORIZED: 'not_authorized',
@@ -7,6 +8,8 @@ export const SHIZUKU_STATUS = {
   DISCONNECTED: 'disconnected',
   UNSUPPORTED: 'unsupported',
 };
+
+export const SHIZUKU_BOOT_GRACE_HEALTH_CHECKS = 30;
 
 export const CLIPBOARD_CAPTURE_BACKEND = {
   LEGACY: 'legacy',
@@ -21,6 +24,21 @@ const validShizukuStatuses = new Set(Object.values(SHIZUKU_STATUS));
 
 const normalizeShizukuStatus = status =>
   validShizukuStatuses.has(status) ? status : SHIZUKU_STATUS.DISCONNECTED;
+
+export const resolveShizukuStartupStatus = ({
+  nativeStatus,
+  bootGraceChecksRemaining,
+}) => {
+  const normalizedStatus = normalizeShizukuStatus(nativeStatus);
+  if (
+    normalizedStatus === SHIZUKU_STATUS.DISCONNECTED &&
+    bootGraceChecksRemaining > 0
+  ) {
+    return SHIZUKU_STATUS.STARTUP_PENDING;
+  }
+
+  return normalizedStatus;
+};
 
 export const resolveClipboardCaptureProvider = ({
   enableShizukuClipboardBackend,
@@ -46,10 +64,13 @@ export const resolveClipboardCaptureProvider = ({
     };
   }
 
-  if (normalizedStatus === SHIZUKU_STATUS.PERMISSION_PENDING) {
+  if (
+    normalizedStatus === SHIZUKU_STATUS.STARTUP_PENDING ||
+    normalizedStatus === SHIZUKU_STATUS.PERMISSION_PENDING
+  ) {
     return {
       backend: CLIPBOARD_CAPTURE_BACKEND.PAUSED,
-      shizukuStatus: SHIZUKU_STATUS.PERMISSION_PENDING,
+      shizukuStatus: normalizedStatus,
       automaticCaptureEnabled: false,
       shouldNotifyUnavailable: false,
     };
@@ -72,6 +93,7 @@ export const shouldRetryPausedShizukuCapture = ({
 
 export const getClipboardCaptureUnavailableMessage = status => {
   switch (normalizeShizukuStatus(status)) {
+    case SHIZUKU_STATUS.STARTUP_PENDING:
     case SHIZUKU_STATUS.PERMISSION_PENDING:
       return '';
     case SHIZUKU_STATUS.NOT_INSTALLED:
@@ -92,6 +114,9 @@ export const getClipboardCaptureUnavailableMessage = status => {
 
 export const getClipboardCaptureStatusMessage = status => {
   const normalizedStatus = normalizeShizukuStatus(status);
+  if (normalizedStatus === SHIZUKU_STATUS.STARTUP_PENDING) {
+    return 'Waiting for Shizuku to start';
+  }
   if (normalizedStatus === SHIZUKU_STATUS.PERMISSION_PENDING) {
     return 'Shizuku permission approval pending';
   }

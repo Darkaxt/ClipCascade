@@ -182,6 +182,78 @@ describe('StartForegroundService notification contract', () => {
     );
   });
 
+  test('does not publish a Shizuku outage notification during boot startup grace', async () => {
+    getMultipleDataFromAsyncStorage.mockResolvedValue({
+      websocket_url: 'wss://clipcascade.example/clip',
+      cipher_enabled: 'false',
+      maxsize: '1048576',
+      server_mode: 'P2S',
+      stun_url: '',
+      enable_image_sharing: 'true',
+      enable_file_sharing: 'true',
+      enable_shizuku_clipboard_backend: 'true',
+      enable_websocket_status_notification: 'false',
+      max_clipboard_size_local_limit_bytes: '1048576',
+      api_key: 'cck_test',
+    });
+    mockNativeModules.NativeBridgeModule.getFlagsSync.mockImplementation(() =>
+      JSON.stringify({
+        wsIsRunning: mockWsIsRunning ? 'true' : 'false',
+        echo: '',
+        downloadFiles: 'false',
+        filesAvailableToDownload: 'false',
+        enable_image_sharing: 'true',
+        enable_file_sharing: 'true',
+        enable_shizuku_clipboard_backend: 'true',
+        enable_websocket_status_notification: 'false',
+        max_clipboard_size_local_limit_bytes: '1048576',
+      }),
+    );
+    mockNativeModules.ShizukuClipboard.getStatus.mockResolvedValue({
+      status: 'disconnected',
+    });
+
+    await StartForegroundService({ launchReason: 'BOOT_COMPLETED' });
+    const foregroundNotification = notifee.displayNotification.mock.calls.find(
+      ([notification]) =>
+        notification.id === 'ClipCascade_Foreground_Service_Notification_Id',
+    )[0];
+    const foregroundRun = mockForegroundServiceCallback(foregroundNotification);
+
+    for (
+      let attempts = 0;
+      attempts < 20 && storage.shizuku_status !== 'startup_pending';
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+
+    const bootNotificationData = foregroundNotification.data;
+    const shizukuStatusDuringBoot = storage.shizuku_status;
+    const postedUnavailableNotification =
+      notifee.displayNotification.mock.calls.some(
+        ([notification]) =>
+          notification.title ===
+          'ClipCascade: Shizuku clipboard backend unavailable',
+      );
+
+    mockWsIsRunning = false;
+    jest.advanceTimersByTime(1000);
+    await Promise.resolve();
+    await foregroundRun;
+
+    expect(bootNotificationData).toEqual({
+      launchReason: 'BOOT_COMPLETED',
+    });
+    expect(shizukuStatusDuringBoot).toBe('startup_pending');
+    expect(postedUnavailableNotification).toBe(false);
+    expect(notifee.displayNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'ClipCascade: Shizuku clipboard backend unavailable',
+      }),
+    );
+  });
+
   test('does not require server self-echo before sending another P2S clipboard item', async () => {
     await StartForegroundService();
     const foregroundRun = mockForegroundServiceCallback({

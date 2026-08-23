@@ -20,12 +20,12 @@ VSVersionInfo(
               'FileDescription',
               'ClipCascade clipboard synchronization client'
             ),
-            StringStruct('FileVersion', '3.2.0.24'),
+            StringStruct('FileVersion', '3.2.0.25'),
             StringStruct('InternalName', 'ClipCascade'),
             StringStruct('LegalCopyright', 'Copyright Sathvik Rao and contributors'),
             StringStruct('OriginalFilename', 'ClipCascade.exe'),
             StringStruct('ProductName', 'ClipCascade Darkaxt'),
-            StringStruct('ProductVersion', '3.2.0.24')
+            StringStruct('ProductVersion', '3.2.0.25')
           ]
         )
       ]
