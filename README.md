@@ -12,6 +12,11 @@ Android and Windows `3.2.0.25` build on upstream ClipCascade `3.2.0` with Darkax
 
 ### Latest Darkaxt Release
 
+Local Android verification build `3.2.0.26` fixes stalled service replacement and
+transport recovery by discarding retired STOMP connections without waiting for
+broker disconnect receipts or native socket-close delivery. This build has not
+been published; the latest public release below remains `3.2.0.25`.
+
 Download release `3.2.0.25` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.25).
 
 | Artifact | SHA-256 |

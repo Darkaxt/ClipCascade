@@ -1,6 +1,7 @@
 let mockNativeEventListeners = {};
 let mockNativeModules;
 let mockWsIsRunning = true;
+let mockEcho = '';
 let mockForegroundServiceCallback;
 
 jest.mock('react-native', () => ({
@@ -44,14 +45,18 @@ jest.mock('@notifee/react-native', () => ({
 
 jest.mock('@stomp/stompjs', () => ({
   Client: jest.fn().mockImplementation(function StompClient(config) {
+    this.config = config;
+    this.active = false;
     this.connected = false;
     this.publish = jest.fn();
     this.subscribe = jest.fn();
     this.activate = jest.fn(async () => {
+      this.active = true;
       this.connected = true;
       await config.onConnect?.();
     });
     this.deactivate = jest.fn(async () => {
+      this.active = false;
       this.connected = false;
     });
   }),
@@ -102,18 +107,14 @@ mockNativeModules = {
 };
 
 const notifee = require('@notifee/react-native').default;
-const {
-  appendClipboardEvent,
-} = require('../ClipboardEventLog');
+const { appendClipboardEvent } = require('../ClipboardEventLog');
 const {
   getDataFromAsyncStorage,
   getMultipleDataFromAsyncStorage,
   setDataInAsyncStorage,
 } = require('../AsyncStorageManagement');
 const { Client } = require('@stomp/stompjs');
-const {
-  armLocalClipboardReplay,
-} = require('../LocalClipboardReplay');
+const { armLocalClipboardReplay } = require('../LocalClipboardReplay');
 const StartForegroundService = require('../StartForegroundService');
 
 describe('StartForegroundService notification contract', () => {
@@ -125,10 +126,11 @@ describe('StartForegroundService notification contract', () => {
     storage = {};
     mockNativeEventListeners = {};
     mockWsIsRunning = true;
+    mockEcho = '';
     mockNativeModules.NativeBridgeModule.getFlagsSync.mockImplementation(() =>
       JSON.stringify({
         wsIsRunning: mockWsIsRunning ? 'true' : 'false',
-        echo: '',
+        echo: mockEcho,
         downloadFiles: 'false',
         filesAvailableToDownload: 'false',
         enable_image_sharing: 'true',
@@ -337,16 +339,55 @@ describe('StartForegroundService notification contract', () => {
     }
 
     const replacementClient = Client.mock.instances[1];
-    expect(firstClient.deactivate).toHaveBeenCalledTimes(1);
-    expect(replacementClient.activate).toHaveBeenCalledTimes(1);
-    expect(firstClient.deactivate.mock.invocationCallOrder[0]).toBeLessThan(
-      replacementClient.activate.mock.invocationCallOrder[0],
-    );
-
     mockWsIsRunning = false;
     jest.advanceTimersByTime(1000);
     await Promise.resolve();
     await replacementRun;
+
+    expect(firstClient.deactivate).toHaveBeenCalledTimes(1);
+    expect(firstClient.deactivate).toHaveBeenCalledWith({ force: true });
+    expect(replacementClient.activate).toHaveBeenCalledTimes(1);
+    expect(firstClient.deactivate.mock.invocationCallOrder[0]).toBeLessThan(
+      replacementClient.activate.mock.invocationCallOrder[0],
+    );
+  });
+
+  test('discards stalled STOMP recovery and continues answering watchdog pings', async () => {
+    await StartForegroundService();
+    const foregroundRun = mockForegroundServiceCallback({ id: 'recovery' });
+    for (
+      let attempts = 0;
+      attempts < 20 && !Client.mock.instances[0]?.activate;
+      attempts += 1
+    ) {
+      await Promise.resolve();
+    }
+    const client = Client.mock.instances[0];
+    await client.activate.mock.results[0].value;
+    client.connected = false;
+    await client.config.onWebSocketClose({ code: 1006 });
+    client.deactivate.mockImplementation(async options => {
+      if (!options?.force) {
+        // A broken native socket never supplies the close event.
+        await new Promise(() => {});
+      }
+      client.active = false;
+      client.connected = false;
+    });
+    mockEcho = 'ping';
+    jest.setSystemTime(Date.now() + 60000);
+    await jest.advanceTimersByTimeAsync(1000);
+    const pongAfterRecovery = storage.echo;
+    mockWsIsRunning = false;
+    await jest.advanceTimersByTimeAsync(1000);
+    await foregroundRun;
+
+    expect(client.deactivate).toHaveBeenCalledWith({ force: true });
+    expect(client.activate).toHaveBeenCalledTimes(2);
+    expect(pongAfterRecovery).toBe('pong');
+    expect(
+      mockNativeModules.NativeBridgeModule.clearInactiveServiceNotification,
+    ).toHaveBeenCalled();
   });
 
   test('does not send text restored from activity history', async () => {

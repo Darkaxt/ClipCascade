@@ -1349,9 +1349,9 @@ module.exports = async (inputData = null) => {
               stompClient.onWebSocketError = null;
               stompClient.onWebSocketClose = () => {};
 
-              // Deactivate the stomp connection
+              // Retire locally even if the broker receipt or native close is lost.
               try {
-                await stompClient.deactivate();
+                await stompClient.deactivate({ force: true });
               } catch (e) {
                 warnServiceLifecycle('STOMP deactivate failed during stop', e);
                 // no-op
@@ -2503,7 +2503,7 @@ module.exports = async (inputData = null) => {
               );
               try {
                 if (stompClient.active) {
-                  await stompClient.deactivate();
+                  await stompClient.deactivate({ force: true });
                 }
                 stompClient.activate();
               } catch (error) {
