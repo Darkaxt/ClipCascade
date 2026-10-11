@@ -447,7 +447,13 @@ To install the ClipCascade mobile application on your Android device, follow the
 
 The Android wrapper uses Gradle **9.1.0**, pinned to the official distribution
 SHA-256. The verified toolchain is Zulu JDK 21, Android SDK/build tools 35,
-React Native 0.80.2, AGP 8.9.2, and Kotlin 2.1.20.
+React Native 0.80.2, AGP 8.9.2, Kotlin 2.1.20, and NDK **29.0.14206865 (r29)**.
+
+The current Android build uses the old React Native architecture and published
+native libraries. NDK r29 is verified for release native stripping/packaging;
+all 40 packaged libraries remain byte-identical across the four supported ABIs.
+This does not assert r29 compatibility for a future new-architecture source build.
+See the [NDK migration evidence](docs/superpowers/specs/2026-10-11-ndk-r29-consolidation.md).
 
 Only **JDK 21** is required: Gradle daemon criteria select 21, and the React Native
 patch selects 21 for its four plugin modules and consuming Android/Kotlin projects.
