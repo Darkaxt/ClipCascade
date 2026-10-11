@@ -449,10 +449,16 @@ The Android wrapper uses Gradle **9.1.0**, pinned to the official distribution
 SHA-256. The verified toolchain is Zulu JDK 21, Android SDK/build tools 35,
 React Native 0.80.2, AGP 8.9.2, and Kotlin 2.1.20.
 
+Only **JDK 21** is required: Gradle daemon criteria select 21, and the React Native
+patch selects 21 for its four plugin modules and consuming Android/Kotlin projects.
+Bytecode targets remain Java 11 for the plugin and Java 17 for Android; these are
+output compatibility levels, not requirements to install those older JDKs.
+
 Run `npm ci --include=dev` in `ClipCascade_Mobile/src` before building. Its
 postinstall step applies the versioned patches in `patches/`: Foojay resolver
-1.0.0 for Gradle 9 and removal of obsolete JCenter calls in the AES/PBKDF2 native
-libraries. Do not skip install scripts; an unapplied patch fails installation.
+1.0.0 for Gradle 9, JDK 21 toolchain selection, and removal of obsolete JCenter
+calls in the AES/PBKDF2 native libraries. Do not skip install scripts; an
+unapplied patch fails installation.
 
 On the managed Windows desktop, run builds through the shared build gate:
 
@@ -461,7 +467,7 @@ Set-Location ClipCascade_Mobile/src
 npm ci --include=dev
 $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
 $gate = "$env:USERPROFILE\.agents\skills\gradle-build-gate\scripts\invoke_gradle_build_gate.py"
-python $gate run --project "$PWD/android" -- --no-daemon :app:testReleaseUnitTest :app:assembleRelease
+python $gate run --project "$PWD/android" --owner-task "Build ClipCascade Android" -- --no-daemon :app:testReleaseUnitTest :app:assembleRelease
 ```
 
 The gate coordinates Windows builds and applies two workers, no parallel
@@ -472,6 +478,9 @@ Configuration, native binder tests, and signed release packaging passed on this
 toolchain. Existing Gradle 10 deprecation warnings remain; this is not a Gradle 10
 migration or a React Native upgrade. See the
 [upgrade review and verification](docs/superpowers/specs/2026-10-11-gradle-9-upgrade.md).
+An isolated build with JDK discovery/download disabled and only JDK 21 available
+also passed native tests and signed packaging. See the
+[Java 21 migration evidence](docs/superpowers/specs/2026-10-11-java-21-only-build.md).
 
 #### Android Automatic Clipboard Monitoring Setup:
 
