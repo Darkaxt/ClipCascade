@@ -45,6 +45,12 @@ public class ApiKeyStompAuthenticationInterceptor implements ChannelInterceptor 
             throw new AccessDeniedException("WebSocket authentication required");
         }
 
+        String destination = accessor.getDestination();
+        if (StompCommand.SUBSCRIBE.equals(accessor.getCommand()) && destination != null
+                && destination.contains("client-health") && !"/user/queue/client-health".equals(destination)) {
+            throw new AccessDeniedException("Client health subscription must use the private user destination");
+        }
+
         return message;
     }
 

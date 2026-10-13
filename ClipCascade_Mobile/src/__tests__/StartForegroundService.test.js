@@ -293,20 +293,38 @@ describe('StartForegroundService notification contract', () => {
       backend: 'legacy',
     });
 
-    expect(stompInstance.publish).toHaveBeenCalledTimes(2);
+    const clipboardSends = () => stompInstance.publish.mock.calls.filter(
+      ([message]) => message.destination === '/app/cliptext',
+    );
+    expect(clipboardSends()).toHaveLength(2);
+    const healthMessages = () => stompInstance.publish.mock.calls.filter(
+      ([message]) => message.destination === '/app/client-health',
+    ).map(([message]) => JSON.parse(message.body));
+    expect(healthMessages()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'hello', platform: 'android' }),
+      { protocol: 1, kind: 'ack', ackType: 'clipboard_detected', clipboardType: 'text' },
+    ]));
+    const healthCallback = stompInstance.subscribe.mock.calls.find(
+      ([destination]) => destination === '/user/queue/client-health',
+    )[1];
+    const eventsBeforeProbe = appendClipboardEvent.mock.calls.length;
+    await healthCallback({ body: JSON.stringify({ protocol: 1, kind: 'probe', probeId: 'probe-test' }) });
+    expect(healthMessages()).toContainEqual({ protocol: 1, kind: 'ack', ackType: 'client_alive', probeId: 'probe-test' });
+    expect(appendClipboardEvent.mock.calls).toHaveLength(eventsBeforeProbe);
+    expect(clipboardSends()).toHaveLength(2);
     // Explicit resend bypasses both immediate duplicates and inbound echo guards.
     expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('sent');
     expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('sent');
-    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    expect(clipboardSends()).toHaveLength(4);
     await mockNativeEventListeners.onClipboardChange({
       type: 'text', content: 'second local clipboard', backend: 'legacy',
     });
-    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    expect(clipboardSends()).toHaveLength(4);
     expect(await resendClipboardText('row', () => 'x'.repeat(1048577))).toBe('failed');
-    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    expect(clipboardSends()).toHaveLength(4);
     stompInstance.connected = false;
     expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('disconnected');
-    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    expect(clipboardSends()).toHaveLength(4);
     stompInstance.connected = true;
     expect(appendClipboardEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -436,7 +454,9 @@ describe('StartForegroundService notification contract', () => {
       backend: 'legacy',
     });
 
-    expect(stompInstance.publish).not.toHaveBeenCalled();
+    expect(stompInstance.publish.mock.calls.filter(
+      ([message]) => message.destination === '/app/cliptext',
+    )).toHaveLength(0);
     expect(appendClipboardEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         direction: 'outbound',

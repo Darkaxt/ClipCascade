@@ -339,7 +339,7 @@ class ClipCascadeApplicationTests {
 
 	@Test
 	void serverUpdateMetadataUsesForkReleaseStream() {
-		assertThat(ServerConstants.APP_VERSION).isEqualTo("3.2.0.5");
+        assertThat(ServerConstants.APP_VERSION).isEqualTo("3.2.0.29");
 		assertThat(ServerConstants.VERSION_URL).contains("Darkaxt/ClipCascade");
 		assertThat(ServerConstants.METADATA_URL).contains("Darkaxt/ClipCascade");
 		assertThat(ServerConstants.HELP_URL).contains("Darkaxt/ClipCascade");

@@ -39,6 +39,7 @@ class ClipboardManager:
         self.config = config
         self.activity_log = activity_log
         self.transport = transport
+        self.detected_callback = None
         self.previous_clipboard_hash = None
         self.previous_clipboard_hash_at = 0.0
         self._local_replay_hash = None
@@ -64,6 +65,11 @@ class ClipboardManager:
         detail: str = "",
         replay_text: str = None,
     ):
+        if direction == "Local" and status == "Detected" and self.detected_callback is not None:
+            try:
+                self.detected_callback(payload_type)
+            except Exception:
+                logging.debug("Clipboard detection health report unavailable")
         if self.activity_log is not None:
             self.activity_log.append(
                 direction=direction,

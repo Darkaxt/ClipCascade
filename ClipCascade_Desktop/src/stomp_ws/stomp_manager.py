@@ -6,6 +6,7 @@ from threading import Event, Lock, RLock, Thread, current_thread
 
 from interfaces.ws_interface import WSInterface
 from stomp_ws.client import Client
+from stomp_ws.client_health import attach_client_health, report_clipboard_detected
 from core.config import Config
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
@@ -37,6 +38,7 @@ class STOMPManager(WSInterface):
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
         self.client = None
+        self.clipboard_manager.detected_callback = lambda type_: report_clipboard_detected(self.client, type_)
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
@@ -125,10 +127,7 @@ class STOMPManager(WSInterface):
             client.connect(
                 timeout=WEBSOCKET_TIMEOUT,
                 headers=self.request_manager.stomp_headers(),
-                connectCallback=lambda _: client.subscribe(  # receive event
-                    destination=SUBSCRIPTION_DESTINATION,
-                    callback=self._receive,
-                ),
+                connectCallback=lambda _: self._subscribe(client),
             )
             if self.disconnected:
                 client.disconnect()
@@ -157,6 +156,10 @@ class STOMPManager(WSInterface):
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
             return False, msg
+
+    def _subscribe(self, client):
+        client.subscribe(destination=SUBSCRIPTION_DESTINATION, callback=self._receive)
+        attach_client_health(client, APP_VERSION)
 
     def _on_close(self, client=None):
         with self._state_lock:

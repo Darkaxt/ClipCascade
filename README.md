@@ -8,11 +8,25 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android and Windows `3.2.0.28` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions. The server remains at `3.2.0.5`.
+Android, Windows and server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
 
 ### Latest Darkaxt Release
 
-Release `3.2.0.28` adds explicit Resend for retained text in both activity views,
+Release `3.2.0.29` adds server-first client visibility and a silent, separate
+P2S control channel. `Client Alive` acknowledges a session-bound server probe;
+`Clipboard Detected` reports a local watcher observation using only type and
+server receipt time. Neither means a remote device applied the clipboard.
+Control messages do not change the clipboard, produce notifications or enter
+activity history. Management API keys can GET `/api/client-health` and POST
+`/api/client-health/probes` for their own user. Poll GET for the ACK; pending is
+not proof of failure. Older clients and P2P mode are explicitly unsupported.
+
+For a server-side audit, use `python tools/audit_client_health.py --server-url
+https://your-server --key-file /private/path/management.key --probe`. Keep the
+management key outside the repository. Omit `--probe` to read the latest state.
+The command never queues clipboard data or restarts devices.
+
+Release `3.2.0.28` added explicit Resend for retained text in both activity views,
 separate from local Copy. Resend uses the existing encrypted connection and size
 limits, bypasses immediate duplicate suppression only for that action, and is
 disabled while disconnected. Sent means local transport handoff, not peer receipt.
@@ -28,7 +42,7 @@ so reconnect does not depend on Android delivering a native close event. It also
 includes the unpublished `3.2.0.26` force-shutdown fix and adds privacy-safe
 watchdog health-phase diagnostics. Strict Shizuku behavior is unchanged.
 
-Download [Android and Windows 3.2.0.28](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.28).
+Download [Android, Windows and server 3.2.0.29](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.29).
 Artifact SHA-256 digests are included with the release.
 
 Previous release: [3.2.0.25](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.25).

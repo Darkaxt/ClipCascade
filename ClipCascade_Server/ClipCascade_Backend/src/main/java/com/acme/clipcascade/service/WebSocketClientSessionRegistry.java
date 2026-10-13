@@ -16,6 +16,7 @@ import com.acme.clipcascade.model.UserPrincipal;
 public class WebSocketClientSessionRegistry {
 
     private final Map<String, String> clientIdsBySessionId = new ConcurrentHashMap<>();
+    private final Map<String, String> clientNamesBySessionId = new ConcurrentHashMap<>();
 
     @EventListener
     public void onSessionConnect(SessionConnectEvent event) {
@@ -36,11 +37,15 @@ public class WebSocketClientSessionRegistry {
         }
 
         clientIdsBySessionId.put(sessionId, userPrincipal.getClientId());
+        if (userPrincipal.getClientName() != null) {
+            clientNamesBySessionId.put(sessionId, userPrincipal.getClientName());
+        }
     }
 
     @EventListener
     public void onSessionDisconnect(SessionDisconnectEvent event) {
         clientIdsBySessionId.remove(event.getSessionId());
+        clientNamesBySessionId.remove(event.getSessionId());
     }
 
     public String getClientId(String sessionId) {
@@ -48,5 +53,9 @@ public class WebSocketClientSessionRegistry {
             return null;
         }
         return clientIdsBySessionId.get(sessionId);
+    }
+
+    public String getClientName(String sessionId) {
+        return clientNamesBySessionId.get(sessionId);
     }
 }

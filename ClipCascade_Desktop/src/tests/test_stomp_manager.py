@@ -74,6 +74,9 @@ class FakeClient:
     def subscribe(self, destination, callback=None, headers=None):
         return "sub-0", lambda: None
 
+    def send(self, destination, headers=None, body=None):
+        pass
+
     def disconnect(self):
         self.disconnect_called = True
         self.connected = False

@@ -63,6 +63,8 @@ import {
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 import { createForegroundServiceLifecycle } from './ForegroundServiceLifecycle';
 import { createStompTransportConfig } from './StompTransportConfig';
+import { attachClientHealth, reportClipboardDetected } from './ClientHealth';
+import { getInstalledAppVersion } from './AppVersion';
 import { registerClipboardResender, notifyClipboardResendState } from './ClipboardResend';
 
 const FOREGROUND_NOTIFICATION_CHANNEL_ID = 'ClipCascade_Foreground_Service';
@@ -397,6 +399,9 @@ module.exports = async (inputData = null) => {
           metadata = {},
           operationKey,
         }) => {
+          if (direction.toLowerCase() === 'outbound' && status === 'Detected') {
+            reportClipboardDetected(stompClient, type);
+          }
           appendClipboardEvent({
             direction: direction.toLowerCase(),
             type,
@@ -1128,6 +1133,8 @@ module.exports = async (inputData = null) => {
                   await appendActivityError('inbound', 'text', e);
                 }
               });
+
+              attachClientHealth(stompClient, getInstalledAppVersion());
 
               if (
                 runtimeSettings.enable_websocket_status_notification === 'true'
