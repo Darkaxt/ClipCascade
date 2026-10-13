@@ -50,12 +50,10 @@ is required for live integration. Android installation remains user-owned.
    Session/user mismatch and duplicate ACK checks pass. Windows transport/recovery
    and Android foreground integration checks pass, with separate control/clipboard
    destinations and no probe activity-log entries. ESLint has no errors.
-2. Delivery and audit - ACTIVE. H5-H6: version/sign/build, server/local
-   Windows activation and live protocol verification, GitHub release/download
-   verification, update audit and cleanup. Stage 1 prerequisite is satisfied.
-   Advancement blockers (internal): matching signed builds, live activation,
-   release/download verification and audit update not yet complete. Resolve with
-   inspected delivery evidence; overall completion depends on those outcomes.
+2. Delivery and audit - COMPLETE. H5-H6: matching signed client builds and server
+   JAR published, downloaded independently and verified. Server/local Windows
+   activated; production Client Alive ACK verified. Audit updated, read back and
+   exercised with the dedicated management key. Reviewed cleanup is applied.
 
 Delivery checkpoint: server JAR and Windows EXE are built at 3.2.0.29. The
 production server reports 3.2.0.29 and retains localhost-only port 18080 and the
@@ -72,13 +70,53 @@ fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c.
 
 Resolved H5/H6 credential blocker: user explicitly authorized creating the key.
 Provisioned one dedicated manage_keys record through exclusive local H2 access,
-with graceful container stop and restart. No existing account/key records were
-modified. Its plaintext is only in the external audit key file, ACL restricted
+with graceful container stop and restart. No account credentials or existing key
+scopes/secrets were changed. Its plaintext is only in the external key file, ACL restricted
 to the user and SYSTEM. Production device key still receives 403 on audit API.
 Live server probe receives Client Alive from installed Windows 3.2.0.29; a
 connected Android 3.2.0.28 client is accurately unsupported, not unhealthy.
 The six-hour audit configuration is updated and read back, using server probes
 first and ADB only for targeted diagnosis. No clipboard mutation for live probes.
+
+## Final Delivery Evidence
+
+- Public release: https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.29
+  (non-draft, non-prerelease). Source/tag commit:
+  4a21e3470a44d2fd2cf8a8da1efa18347a34cbc3, verified on origin.
+- Independently downloaded APK, EXE, JAR and SHA256SUMS. Computed digests match
+  the checksum file, private deliverables and installed Windows binary:
+  APK 0BD0F0D942C463F0414B19C739AF09C971F6178FD7E79B367E89D58ECE6BE097;
+  EXE 88243EE68F4F5651C7FF081D8BB11AD334764155BE4756F83122D2DA6C7D5B1A;
+  JAR 1ACC5C96D1CF215F252ACDE278656D4626E0372D76C3A171844D2AAE150E9F3A.
+  Downloaded APK signature verifies with the unchanged certificate above; Windows
+  FileVersion and ProductVersion both report 3.2.0.29. Production server version
+  endpoint reports 3.2.0.29. Private verification records remain under
+  private/releases/3.2.0.29/verification.
+- Production probes acknowledged by Windows 3.2.0.29 at 14:03:47Z and 14:06:34Z.
+  Its original installed parent/child processes exited gracefully, and DATA
+  digest remained ACA3A1A91300692AB38FA815FCEA9080EBA3A78A87F8613EC703677C1B57E3CE.
+  The connected legacy Android phone is listed unsupported with its registered
+  identity. No ADB commands or Android installation were used for this delivery.
+- Clipboard Detected is verified through Android foreground capture integration,
+  Windows control handler checks and real server typed-ACK integration. Live
+  probe verification intentionally did not mutate the clipboard or fabricate a
+  capture report. The latest production session had no new capture observation
+  at the final read; an idle capture timestamp is not a fault.
+- Existing audit automation remains ACTIVE every six hours. Its server-first
+  helper completes successfully with the restricted external management key;
+  device sync key access is refused with HTTP 403. The helper never follows
+  redirects with credentials and filters output to the documented metadata.
+- Cleanup transactions 2e86c66d710dc45cabc09363cf4e48b6,
+  2f23bd7acb9bdc6c91cd97054057e82a and b49bfb4c6ae6e40768555f17a5013093
+  are applied without errors, reclaiming 329753184, 80785489 and 11154 bytes.
+  Persistent releases, private evidence, signing identity, audit key and defined
+  server rollback image are retained.
+
+H1-H7 are satisfied at the stated verification level. No advancement blockers
+or tracked deferrals remain. Android device-side ACK verification awaits the
+user-owned update, not an agent-installed APK. This release does not implement
+clipboard delivery/apply ACKs or P2P health, or claim to resolve unrelated security
+alerts or every possible client lifecycle failure.
 
 No tracked deferrals. Android live ACK verification depends on the user installing
 the published update; legacy installed clients must remain accurately unsupported.
