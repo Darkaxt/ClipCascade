@@ -37,11 +37,11 @@ and local Windows update are authorized. Android installation remains user-owned
    failure/reconnect checks; stable validated TLS trust.
 2. Android recovery - COMPLETE. R3/R4: actual stompjs heartbeat and DNS-like
    connection failure regression; foreground phase diagnostics and focused tests.
-3. Resend and delivery - ACTIVE. R4/R5/R6/R7: integrate explicit history resend,
-   verify signed matching builds, release publication/download proof and local
-   Windows replacement/live sync. The initial 3.2.0.27 Windows local deployment
-   was verified before R7 was requested; final delivery will use 3.2.0.28 so an
-   final published version identifies the integrated recovery/resend build.
+3. Resend and delivery - COMPLETE. R4/R5/R6/R7: explicit history resend is
+   integrated and verified, matching signed builds are published and independently
+   downloaded/verified, and local Windows replacement/live sync is verified.
+   The initial 3.2.0.27 local candidate preceded R7; the final published 3.2.0.28
+   identifies the integrated recovery/resend build.
 
 No blockers or tracked deferrals. The initial Android logs show a missed health
 probe at 04:18:22 followed by automatic restart and STOMP recovery. Windows logs
@@ -86,3 +86,32 @@ and verified daemon exit. Its APK reports versionName 3.2.0.28, versionCode
 fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c.
 The Windows immediate-handshake-close race has a failure-first regression check;
 serialized connection-state publication now rejects that closed transport.
+
+## Final Delivery Evidence
+
+- Release: https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.28
+  (public, non-draft, non-prerelease). Release tag and implementation commit:
+  b90e1e72d5c7a3de8012af7d24670241fbeefdae, pushed to origin.
+- Independently downloaded both release assets and SHA256SUMS using GitHub CLI.
+  Both computed digests match the checksum file and verified local deliverables:
+  Android EBEA7D533D8FD6A1B57A8880ABF7BD369FE318BEB8445966CE52A593924F9C72;
+  Windows 46B5276F59514C7C2712732918612A14A798C5134E21384DEA20ECFEF3A3A26C.
+- Downloaded APK passes apksigner verification with the unchanged certificate
+  above, versionName 3.2.0.28 and versionCode 3020028. Downloaded Windows PE
+  FileVersion and ProductVersion both report 3.2.0.28. The installed EXE has the
+  same published digest. Its parent/child processes are running from the intended
+  installation directory; cached API authentication and real clipboard send were
+  verified after final replacement. No Android installation was performed.
+- Audit configuration read back: audit-clipcascade-recovery is ACTIVE, every six
+  hours, quiet when healthy, with Android installation explicitly prohibited.
+- Reviewed cleanup transactions 852f3f5ac06422d34e568f2172568b50 and
+  addbcc354d72cc7010087d9d307cdd65 are applied with no residual errors, reclaiming
+  427211838 and 57928765 bytes respectively. Final deliverables and private
+  verification evidence remain under private/releases/3.2.0.28.
+
+All R1-R7 acceptance criteria are satisfied at the stated verification level.
+No blockers or tracked deferrals remain. Android transport recovery is verified
+against the real protocol implementation and signed packaging, not a new device
+installation; historical unrelated foreground-loop stalls remain diagnosable,
+not claimed retrospectively resolved. Existing GitHub dependency alerts are
+outside this recovery/resend scope.
