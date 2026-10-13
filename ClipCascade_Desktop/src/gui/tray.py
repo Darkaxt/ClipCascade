@@ -361,6 +361,8 @@ class TaskbarPanel:
                     master=self.root,
                     on_close=mark_inactive,
                     copy_text_locally=self.copy_text_locally,
+                    resend_text=getattr(self.ws_interface, "resend_text", None),
+                    is_connected=lambda: self.ws_interface.is_resend_available(),
                 )
             except Exception as e:
                 mark_inactive()

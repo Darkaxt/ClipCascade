@@ -52,7 +52,7 @@ class RequestManagerSessionTests(unittest.TestCase):
         config.data["password"] = "hashed-password"
         session = DummySession(DummyResponse(status_code=302, headers={"Location": "/"}))
 
-        with patch("utils.request_manager.requests.Session", return_value=session):
+        with patch("utils.request_manager.create_request_session", return_value=session):
             success, msg, cookie = RequestManager(config).login()
 
         self.assertTrue(success)
@@ -69,7 +69,7 @@ class RequestManagerSessionTests(unittest.TestCase):
             DummyResponse(status_code=302, headers={"Location": "/login?error"})
         )
 
-        with patch("utils.request_manager.requests.Session", return_value=session):
+        with patch("utils.request_manager.create_request_session", return_value=session):
             success, msg, cookie = RequestManager(config).login()
 
         self.assertFalse(success)
@@ -83,7 +83,7 @@ class RequestManagerSessionTests(unittest.TestCase):
         config.data["cookie"] = {"JSESSIONID": "abc"}
 
         with patch(
-            "utils.request_manager.requests.get",
+            "utils.request_manager.request_get",
             return_value=DummyResponse(status_code=302),
         ) as mock_get:
             result = RequestManager(config).validate_session()
@@ -97,7 +97,7 @@ class RequestManagerSessionTests(unittest.TestCase):
         config.data["cookie"] = {"JSESSIONID": "abc"}
 
         with patch(
-            "utils.request_manager.requests.get",
+            "utils.request_manager.request_get",
             return_value=DummyResponse(
                 status_code=302,
                 headers={"Location": "https://clipcascade.example.test/login"},
@@ -133,7 +133,7 @@ class RequestManagerSessionTests(unittest.TestCase):
         config.data["api_key"] = "cck_secret"
 
         with patch(
-            "utils.request_manager.requests.get",
+            "utils.request_manager.request_get",
             return_value=DummyResponse(status_code=200),
         ) as mock_get:
             result = RequestManager(config).validate_session_result()

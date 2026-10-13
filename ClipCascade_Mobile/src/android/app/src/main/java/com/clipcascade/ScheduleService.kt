@@ -71,7 +71,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 return Result.success()
             }
 
-            Log.w(TAG, "Foreground JS service missed initial health ping; requesting headless restart")
+            Log.w(TAG, "Foreground JS service missed initial health ping; requesting headless restart ${NativeBridgeModule.serviceHealthDiagnostic()}")
             bridgeData.setValue("foreground_service_stopped_running", "true")
             if (requestHeadlessRestart()) {
                 if(foregroundServiceIsActive(bridgeData, "post-restart", RESTART_PROBE_ATTEMPTS)) {

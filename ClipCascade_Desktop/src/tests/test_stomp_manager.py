@@ -62,10 +62,12 @@ class FakeClient:
         self.kwargs = kwargs
         self.connect_headers = None
         self.disconnect_called = False
+        self.connected = False
         FakeClient.instances.append(self)
 
     def connect(self, timeout=0, headers=None, connectCallback=None, errorCallback=None):
         self.connect_headers = headers
+        self.connected = True
         if connectCallback is not None:
             connectCallback(None)
 
@@ -74,6 +76,7 @@ class FakeClient:
 
     def disconnect(self):
         self.disconnect_called = True
+        self.connected = False
 
 
 class STOMPManagerSessionTests(unittest.TestCase):

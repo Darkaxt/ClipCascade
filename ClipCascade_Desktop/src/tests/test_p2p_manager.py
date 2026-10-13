@@ -1,6 +1,7 @@
 import unittest
 import types
-from unittest.mock import patch
+import asyncio
+from unittest.mock import patch, Mock
 
 from core.config import Config
 from clipboard.clipboard_manager import ClipboardManager
@@ -24,6 +25,21 @@ class InvalidSessionRequestManager:
 
 
 class P2PManagerSessionTests(unittest.TestCase):
+    def test_explicit_resend_reuses_p2p_send_without_duplicate_rejection(self):
+        channel = types.SimpleNamespace(readyState="open", send=Mock())
+        holder = types.SimpleNamespace(
+            config=Config(), clipboard_manager=Mock(),
+            data_channels={"peer": channel}, reset_sending_fragment_id=Mock(),
+            reset_receiving_fragments=Mock(), append_activity=Mock(),
+        )
+        holder.config.data['cipher_enabled'] = False
+        holder.clipboard_manager.has_clipboard_changed.return_value = False
+        asyncio.run(P2PManager._send(holder, 'same text'))
+        channel.send.assert_not_called()
+        asyncio.run(P2PManager._send(holder, 'same text', force=True))
+        channel.send.assert_called_once()
+        self.assertIn('same text', channel.send.call_args.args[0])
+
     def test_text_transport_rows_retain_private_replay_payload(self):
         activity_log = ActivityLog()
         holder = types.SimpleNamespace(activity_log=activity_log)

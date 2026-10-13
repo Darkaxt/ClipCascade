@@ -8,16 +8,30 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android and Windows `3.2.0.25` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions. The server remains at `3.2.0.5`.
+Android and Windows `3.2.0.28` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions. The server remains at `3.2.0.5`.
 
 ### Latest Darkaxt Release
 
-Local Android verification build `3.2.0.26` fixes stalled service replacement and
-transport recovery by discarding retired STOMP connections without waiting for
-broker disconnect receipts or native socket-close delivery. This build has not
-been published; the latest public release below remains `3.2.0.25`.
+Release `3.2.0.28` adds explicit Resend for retained text in both activity views,
+separate from local Copy. Resend uses the existing encrypted connection and size
+limits, bypasses immediate duplicate suppression only for that action, and is
+disabled while disconnected. Sent means local transport handoff, not peer receipt.
 
-Download release `3.2.0.25` from the [Darkaxt fork Releases page](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.25).
+This release also repairs recovery after DNS and network outages. Windows uses
+one reconnect worker that keeps retrying failed connections, waits for the STOMP
+handshake, ignores stale close callbacks, and checks WebSocket ping/pong health.
+Default Windows HTTPS validation uses the OS trust store instead of a temporary
+PyInstaller certifi file; custom CA bundles remain supported.
+
+Android discards dead sockets on missed STOMP heartbeats or handshake failure,
+so reconnect does not depend on Android delivering a native close event. It also
+includes the unpublished `3.2.0.26` force-shutdown fix and adds privacy-safe
+watchdog health-phase diagnostics. Strict Shizuku behavior is unchanged.
+
+Download [Android and Windows 3.2.0.28](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.28).
+Artifact SHA-256 digests are included with the release.
+
+Previous release: [3.2.0.25](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.25).
 
 | Artifact | SHA-256 |
 | --- | --- |

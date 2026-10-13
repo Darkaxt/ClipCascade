@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
-import { Copy } from 'lucide-react-native';
+import { Copy, Send } from 'lucide-react-native';
 import {
   StyleSheet,
   Text,
@@ -16,6 +16,7 @@ import {
 } from './ClipboardEventLog';
 import { setDataInAsyncStorage } from './AsyncStorageManagement';
 import { copyReplayTextLocally } from './LocalClipboardReplay';
+import { isClipboardResendAvailable, resendClipboardText, subscribeClipboardResendState } from './ClipboardResend';
 
 const directionLabels = {
   inbound: 'Inbound',
@@ -44,8 +45,27 @@ const formatTime = timestamp => {
 
 export default function ClipboardActivityLog() {
   const [events, setEvents] = useState(getClipboardEvents());
+  const [canResend, setCanResend] = useState(isClipboardResendAvailable());
+  const [resending, setResending] = useState(false);
 
   useEffect(() => subscribeClipboardEvents(setEvents), []);
+  useEffect(() => subscribeClipboardResendState(setCanResend), []);
+
+  const resend = async eventId => {
+    if (resending) { return; }
+    setResending(true);
+    try {
+      const result = await resendClipboardText(eventId, getReplayableText);
+      ToastAndroid.show({
+        sent: 'Sent to transport - not a delivery confirmation',
+        disconnected: 'Reconnect before resending',
+        unavailable: 'Clipboard entry is no longer available',
+        failed: 'Unable to resend - check connection and size limit',
+      }[result], ToastAndroid.SHORT);
+    } finally {
+      setResending(false);
+    }
+  };
 
   const copyLocally = async eventId => {
     const result = await copyReplayTextLocally({
@@ -100,7 +120,7 @@ export default function ClipboardActivityLog() {
                 <Text style={styles.statusText}>{event.status}</Text>
               </View>
               <View style={styles.actionColumn}>
-                {event.replayable ? (
+                {event.replayable ? (<>
                   <TouchableOpacity
                     accessibilityLabel="Copy locally without syncing"
                     accessibilityRole="button"
@@ -110,6 +130,13 @@ export default function ClipboardActivityLog() {
                   >
                     <Copy color="#78c7dd" size={19} strokeWidth={2} />
                   </TouchableOpacity>
+                  <TouchableOpacity accessibilityLabel="Resend text to connected devices"
+                    accessibilityRole="button" disabled={!canResend || resending}
+                    accessibilityState={{ disabled: !canResend || resending }}
+                    onPress={() => resend(event.id)} style={styles.copyButton}>
+                    <Send color={canResend && !resending ? '#78c7dd' : '#777777'} size={19} />
+                  </TouchableOpacity>
+                </>
                 ) : null}
               </View>
             </View>
@@ -197,7 +224,7 @@ const styles = StyleSheet.create({
   actionColumn: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 32,
+    width: 44,
   },
   copyButton: {
     alignItems: 'center',

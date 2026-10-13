@@ -752,6 +752,17 @@ class P2PManager(WSInterface):
             logging.error(f"[data] Data channel error with {remote_peer_id}: {e}")
             self._sync_live_connections_count()
 
+    def is_resend_available(self) -> bool:
+        return self.is_connected and any(c.readyState == "open" for c in self.data_channels.values())
+
+    def resend_text(self, content: str) -> bool:
+        if not self.is_resend_available():
+            return False
+        if not self.clipboard_manager.is_clipboard_size_within_limit(content, "text"):
+            return False
+        self.schedule_task(self._send(content, "text", force=True))
+        return True
+
     def send(self, payload: str, payload_type: str = "text"):
         self.schedule_task(self._send(payload, payload_type))
 
@@ -759,10 +770,10 @@ class P2PManager(WSInterface):
         self.sending_fragment_id = ""
         self.sending_fragment_stats = None
 
-    async def _send(self, payload: str, payload_type: str = "text"):
+    async def _send(self, payload: str, payload_type: str = "text", force=False):
         try:
             replay_text = payload if payload_type.lower() == "text" else None
-            if self.clipboard_manager.has_clipboard_changed(payload):
+            if self.clipboard_manager.has_clipboard_changed(payload) or force:
                 preview = ActivityLog.preview_payload(payload, payload_type)
                 self.reset_sending_fragment_id()
                 self.reset_receiving_fragments()

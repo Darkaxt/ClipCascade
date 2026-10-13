@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from threading import Thread, Event, current_thread
 
 from .frame import Frame
 import websocket
@@ -32,35 +32,45 @@ class Client:
 
         self._connectCallback = None
         self.errorCallback = None
+        self._ready = Event()
+        self._thread = None
+        self._failure = None
+        self._connect_headers = {}
 
     def _connect(self, timeout=0):
-        if self._ws_sslopt:
-            thread = Thread(
-                target=lambda: self.ws.run_forever(sslopt=self._ws_sslopt)
-            )
-        else:
-            thread = Thread(target=self.ws.run_forever)
-        thread.daemon = True
-        thread.start()
+        def run():
+            try:
+                self.ws.run_forever(
+                    sslopt=self._ws_sslopt or {}, ping_interval=20, ping_timeout=10
+                )
+            finally:
+                self.opened = False
+                self.connected = False
+                self._ready.set()
+                if self.on_close_callback is not None:
+                    self.on_close_callback()
 
-        total_ms = 0
-        while self.opened is False:
-            time.sleep(0.25)
-            total_ms += 250
-            if 0 < timeout < total_ms:
-                raise TimeoutError(f"Connection to {self.url} timed out")
+        self._thread = Thread(target=run, daemon=True)
+        self._thread.start()
+        if not self._ready.wait(timeout / 1000 if timeout > 0 else None):
+            self.disconnect()
+            raise TimeoutError(f"STOMP handshake to {self.url} timed out")
+        if not self.connected:
+            raise ConnectionError(f"STOMP connection failed: {self._failure or 'socket closed'}")
 
     def _on_open(self, ws_app, *args):
         self.opened = True
+        self._transmit("CONNECT", self._connect_headers)
 
     def _on_close(self, ws_app, *args):
         self.connected = False
         logging.debug("Whoops! Lost connection to " + self.ws.url)
-        if self.on_close_callback is not None:
-            self.on_close_callback()
-        self._clean_up()
+        self._ready.set()
 
     def _on_error(self, ws_app, error, *args):
+        self._failure = error
+        self.connected = False
+        self._ready.set()
         logging.debug(error)
 
     def _on_message(self, ws_app, message, *args):
@@ -78,6 +88,7 @@ class Client:
             logging.debug("connected to server " + self.url)
             if self._connectCallback is not None:
                 _results.append(self._connectCallback(frame))
+            self._ready.set()
         elif frame.command == "MESSAGE":
 
             subscription = frame.headers["subscription"]
@@ -107,6 +118,10 @@ class Client:
         elif frame.command == "RECEIPT":
             pass
         elif frame.command == "ERROR":
+            self._failure = frame.headers.get("message", "STOMP ERROR")
+            self.connected = False
+            self._ready.set()
+            self.ws.close()
             if self.errorCallback is not None:
                 _results.append(self.errorCallback(frame))
         else:
@@ -132,8 +147,6 @@ class Client:
     ):
 
         logging.debug("Opening web socket...")
-        self._connect(timeout)
-
         headers = headers if headers is not None else {}
         headers["host"] = self.url
         headers["accept-version"] = VERSIONS
@@ -146,8 +159,8 @@ class Client:
 
         self._connectCallback = connectCallback
         self.errorCallback = errorCallback
-
-        self._transmit("CONNECT", headers)
+        self._connect_headers = headers
+        self._connect(timeout)
 
     def disconnect(self, disconnectCallback=None, headers=None):
         if headers is None:
@@ -155,7 +168,10 @@ class Client:
 
         # self._transmit("DISCONNECT", headers) # comment this
         self.ws.on_close = None
+        self.on_close_callback = None
         self.ws.close()
+        if self._thread is not None and self._thread is not current_thread():
+            self._thread.join()
         self._clean_up()
 
         if disconnectCallback is not None:

@@ -6,7 +6,7 @@ from typing import Optional
 from core.constants import *
 from core.config import Config
 from bs4 import BeautifulSoup
-from utils.ssl_helper import requests_verify_arg
+from utils.ssl_helper import requests_verify_arg, create_request_session, request_get, request_post
 
 
 @dataclass
@@ -76,7 +76,7 @@ class RequestManager:
                 logging.error(msg)
                 return False, msg, None
 
-            session = requests.Session()
+            session = create_request_session()
 
             # Fetch the login page to get the CSRF token
             response = session.get(
@@ -237,7 +237,7 @@ class RequestManager:
                     reason="missing saved login credential",
                 )
 
-            response = requests.get(
+            response = request_get(
                 self.config.data["server_url"] + VALIDATE_SESSION_URL,
                 headers=headers,
                 verify=self._verify(),
@@ -282,7 +282,7 @@ class RequestManager:
         A generic GET mapper for handling GET requests.
         """
         try:
-            response = requests.get(url, headers=headers, verify=verify)
+            response = request_get(url, headers=headers, verify=verify)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:
@@ -297,7 +297,7 @@ class RequestManager:
         A generic POST mapper for handling POST requests.
         """
         try:
-            response = requests.post(url, data=data, headers=headers, verify=verify)
+            response = request_post(url, data=data, headers=headers, verify=verify)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:

@@ -15,13 +15,15 @@ class ActivityWindow(tk.Toplevel):
         master=None,
         on_close=None,
         copy_text_locally=None,
+        resend_text=None,
+        is_connected=lambda: False,
     ):
         set_windows_app_user_model_id()
         super().__init__(master)
         self.activity_log = activity_log
         self.on_close = on_close
         self.replay_controller = (
-            ActivityReplayController(activity_log, copy_text_locally)
+            ActivityReplayController(activity_log, copy_text_locally, resend_text, is_connected)
             if copy_text_locally is not None
             else None
         )
@@ -66,6 +68,9 @@ class ActivityWindow(tk.Toplevel):
             state=tk.DISABLED,
         )
         self.copy_button.pack(side="left", padx=(0, 8))
+        self.resend_button = ttk.Button(actions, text="Resend", command=self._resend_selected,
+                                        state=tk.DISABLED)
+        self.resend_button.pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Refresh", command=self.refresh).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Clear", command=self._clear).pack(side="left", padx=(0, 8))
         ttk.Button(actions, text="Close", command=self.close).pack(side="left")
@@ -140,6 +145,21 @@ class ActivityWindow(tk.Toplevel):
             and self.replay_controller.can_replay(event_id)
         )
         self.copy_button.configure(state=tk.NORMAL if can_replay else tk.DISABLED)
+        can_resend = can_replay and self.replay_controller.can_resend(event_id)
+        self.resend_button.configure(state=tk.NORMAL if can_resend else tk.DISABLED)
+
+    def _resend_selected(self):
+        event_id = self._selected_event_id()
+        if event_id is None or self.replay_controller is None:
+            return
+        result = self.replay_controller.resend(event_id)
+        self.feedback_text.set({
+            "requested": "Resend requested - check activity for send status",
+            "unavailable": "Clipboard entry is no longer available",
+            "disconnected": "Reconnect before resending",
+            "send_failed": "Unable to resend - check connection and size limit",
+        }[result])
+        self._on_selection_changed()
 
     def _copy_selected(self):
         event_id = self._selected_event_id()

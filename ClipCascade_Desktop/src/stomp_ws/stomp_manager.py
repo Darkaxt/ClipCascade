@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from threading import Event, Lock, RLock, Thread, current_thread
 
 
 from interfaces.ws_interface import WSInterface
@@ -39,6 +40,12 @@ class STOMPManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._connect_lock = RLock()
+        self._state_lock = Lock()
+        self._reconnect_lock = Lock()
+        self._reconnect_stop = Event()
+        self._reconnect_needed = Event()
+        self._reconnect_thread = None
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -87,6 +94,17 @@ class STOMPManager(WSInterface):
         return True, ""
 
     def connect(self) -> tuple[bool, str]:
+        with self._connect_lock:
+            if self.is_login_phase:
+                self.disconnected = False
+            elif self.disconnected:
+                return False, "Websocket disconnected"
+            result = self._connect_once()
+        if not result[0] and not self.disconnected and not self.is_login_phase:
+            self._start_reconnect()
+        return result
+
+    def _connect_once(self) -> tuple[bool, str]:
         try:
             if self.is_connected:
                 return True, ""
@@ -95,27 +113,32 @@ class STOMPManager(WSInterface):
             if not session_ok:
                 return False, msg
 
-            self.disconnected = False
-            self.client = Client(
+            if self.client is not None:
+                self.client.disconnect()
+            client = Client(
                 self.config.data["websocket_url"],
                 headers=self.request_manager.auth_headers(),
-                on_close_callback=self._on_close,
+                on_close_callback=lambda: self._on_close(client),
                 sslopt=websocket_sslopt_for_config(self.config),
             )
-            self.client.connect(
+            self.client = client
+            client.connect(
                 timeout=WEBSOCKET_TIMEOUT,
                 headers=self.request_manager.stomp_headers(),
-                connectCallback=lambda _: self.client.subscribe(  # receive event
+                connectCallback=lambda _: client.subscribe(  # receive event
                     destination=SUBSCRIPTION_DESTINATION,
                     callback=self._receive,
                 ),
             )
             if self.disconnected:
-                self.disconnect()
+                client.disconnect()
                 return False, "Websocket disconnected"
 
             # logging.info("Websocket connected")
-            self.is_connected = True
+            with self._state_lock:
+                if not client.connected:
+                    raise ConnectionError("WebSocket closed at STOMP handshake completion")
+                self.is_connected = True
             self.is_auto_reconnecting = False
             if not self.first_conn_lost:
                 self.first_conn_lost = True
@@ -128,12 +151,18 @@ class STOMPManager(WSInterface):
             self.clipboard_manager.on_copy(self.send)
             return True, "Websocket connected"
         except Exception as e:
+            self.is_connected = False
+            if self.client is not None:
+                self.client.disconnect()
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
             return False, msg
 
-    def _on_close(self):
-        self.is_connected = False
+    def _on_close(self, client=None):
+        with self._state_lock:
+            if client is not None and client is not self.client:
+                return
+            self.is_connected = False
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
             self.is_auto_reconnecting = True
@@ -143,14 +172,45 @@ class STOMPManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
+            self._start_reconnect()
 
-    def send(self, payload: str, payload_type: str = "text"):
+    def _start_reconnect(self):
+        with self._reconnect_lock:
+            self._reconnect_needed.set()
+            if self.disconnected or (self._reconnect_thread and self._reconnect_thread.is_alive()):
+                return
+            self._reconnect_stop.clear()
+            self.is_auto_reconnecting = True
+
+            def recover():
+                # Protocol reconnect cadence; the event also wakes explicit disconnect.
+                while True:
+                    self._reconnect_needed.wait()
+                    if self._reconnect_stop.wait(RECONNECT_WS_TIMER) or self.disconnected:
+                        return
+                    self._reconnect_needed.clear()
+                    success, _ = self.connect()
+                    if self.disconnected:
+                        return
+                    if not success:
+                        self._reconnect_needed.set()
+
+            self._reconnect_thread = Thread(target=recover, daemon=True)
+            self._reconnect_thread.start()
+
+    def is_resend_available(self) -> bool:
+        return self.is_connected
+
+    def resend_text(self, content: str) -> bool:
+        if not self.is_resend_available() or not self.clipboard_manager.is_clipboard_size_within_limit(content, "text"):
+            return False
+        return self.send(content, "text", force=True)
+
+    def send(self, payload: str, payload_type: str = "text", force=False):
         try:
             if self.is_connected:
                 replay_text = payload if payload_type.lower() == "text" else None
-                if self.clipboard_manager.has_clipboard_changed(payload):
+                if self.clipboard_manager.has_clipboard_changed(payload) or force:
                     preview = ActivityLog.preview_payload(payload, payload_type)
                     if self.config.data["cipher_enabled"]:
                         payload = CipherManager.encode_to_json_string(
@@ -165,6 +225,7 @@ class STOMPManager(WSInterface):
                         preview,
                         replay_text=replay_text,
                     )
+                    return True
                 else:
                     self.append_activity(
                         "Local",
@@ -177,6 +238,7 @@ class STOMPManager(WSInterface):
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
             self.append_activity("Local", payload_type, "Error", "", str(e))
+        return False
 
     def _receive(self, frame: any) -> str:
         try:
@@ -249,19 +311,21 @@ class STOMPManager(WSInterface):
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
+            self._reconnect_stop.clear()
             self.connect()
 
     def disconnect(self):
-        try:
-            self.clipboard_manager.reset_duplicate_detector()
-            self.disconnected = True
+        self.disconnected = True
+        self._reconnect_stop.set()
+        self._reconnect_needed.set()
+        self.is_auto_reconnecting = False
+        self.is_connected = False
+        with self._connect_lock:
             self.first_conn_lost = True
-            try:
+            if self.client is not None:
                 self.client.disconnect()
-                self.is_connected = False
                 logging.info("Websocket disconnected")
-            except Exception as e:
-                pass  # silent catch
             self.clipboard_manager.stop()
-        except Exception as e:
-            logging.error(f"Failed to disconnect websocket: {e}")
+            self.clipboard_manager.reset_duplicate_detector()
+        if self._reconnect_thread and self._reconnect_thread is not current_thread():
+            self._reconnect_thread.join()

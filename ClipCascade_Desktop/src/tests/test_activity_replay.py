@@ -42,6 +42,26 @@ class ActivityReplayControllerTest(unittest.TestCase):
 
         self.assertEqual(controller.replay(row.event_id), "write_failed")
 
+    def test_resend_is_explicit_and_preserves_local_clipboard(self):
+        log = ActivityLog()
+        row = log.append("Local", "Text", "Sent", "preview", replay_text="full value")
+        copy = Mock()
+        send = Mock(return_value=True)
+        connected = Mock(return_value=True)
+        controller = ActivityReplayController(log, copy, send, connected)
+        self.assertTrue(controller.can_resend(row.event_id))
+        self.assertEqual(controller.resend(row.event_id), "requested")
+        self.assertEqual(controller.resend(row.event_id), "requested")
+        self.assertEqual(send.call_count, 2)
+        send.assert_called_with("full value")
+        copy.assert_not_called()
+        connected.return_value = False
+        self.assertFalse(controller.can_resend(row.event_id))
+        self.assertEqual(controller.resend(row.event_id), "disconnected")
+        self.assertEqual(send.call_count, 2)
+        log.clear()
+        self.assertEqual(controller.resend(row.event_id), "unavailable")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -65,7 +65,7 @@ class ClientEnrollmentTest(unittest.TestCase):
                 }
             )
 
-        with patch("utils.client_enrollment.requests.post", side_effect=fake_post):
+        with patch("utils.client_enrollment.request_post", side_effect=fake_post):
             enroll_client(config, "account-password", "Windows laptop")
 
         self.assertEqual(config.data["api_key"], "cck_device")

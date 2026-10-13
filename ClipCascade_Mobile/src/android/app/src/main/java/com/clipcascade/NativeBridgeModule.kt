@@ -39,6 +39,11 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     companion object {
         private const val TAG = "NativeBridgeModule"
+        @Volatile private var serviceHealthPhase = "not_started"
+        @Volatile private var serviceHealthPhaseAt = 0L
+
+        fun serviceHealthDiagnostic(): String =
+            "phase=$serviceHealthPhase elapsedMs=${android.os.SystemClock.elapsedRealtime() - serviceHealthPhaseAt}"
     }
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
@@ -46,6 +51,13 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     override fun getName(): String {
         return "NativeBridgeModule"
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun setServiceHealthPhase(phase: String): Boolean {
+        serviceHealthPhase = phase
+        serviceHealthPhaseAt = android.os.SystemClock.elapsedRealtime()
+        return true
     }
 
     override fun getConstants(): MutableMap<String, Any> {

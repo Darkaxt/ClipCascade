@@ -6,7 +6,7 @@ import requests
 from Crypto.Cipher import AES
 
 from utils.cipher_manager import CipherManager
-from utils.ssl_helper import requests_verify_arg
+from utils.ssl_helper import requests_verify_arg, request_post
 
 
 ENROLLMENT_URL = "/api/client-enrollment"
@@ -93,7 +93,7 @@ def enroll_client(config, raw_password: str, client_name: str = None) -> dict:
     }
 
     server_url = config.data["server_url"].rstrip("/")
-    response = requests.post(
+    response = request_post(
         server_url + ENROLLMENT_URL,
         json=payload,
         verify=requests_verify_arg(config),

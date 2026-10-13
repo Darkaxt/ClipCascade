@@ -62,6 +62,8 @@ import {
 } from './ClipboardCaptureProvider';
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 import { createForegroundServiceLifecycle } from './ForegroundServiceLifecycle';
+import { createStompTransportConfig } from './StompTransportConfig';
+import { registerClipboardResender, notifyClipboardResendState } from './ClipboardResend';
 
 const FOREGROUND_NOTIFICATION_CHANNEL_ID = 'ClipCascade_Foreground_Service';
 const FOREGROUND_NOTIFICATION_ID =
@@ -162,12 +164,17 @@ module.exports = async (inputData = null) => {
   foregroundServiceLifecycle.register(
     callback => notifee.registerForegroundService(callback),
     async (notification, serviceRun) => {
+      let releaseResender;
       try {
         logServiceLifecycle('foreground callback started', {
           notificationId: notification?.id,
         });
         const { NativeBridgeModule, ClipboardListener, ShizukuClipboard } =
           NativeModules;
+        const healthPhase = phase => {
+          NativeBridgeModule.setServiceHealthPhase?.(phase);
+        };
+        healthPhase('initializing');
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
         clearClipboardEvents();
@@ -201,6 +208,7 @@ module.exports = async (inputData = null) => {
         let sendClipBoardP2P = null;
         let stopServicesP2S = null;
         let stopServicesP2P = null;
+        let isResendConnected = () => false;
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
         let nextForegroundNotificationCheckAt =
@@ -1013,22 +1021,24 @@ module.exports = async (inputData = null) => {
             if (stompDisconnectedSince == null) {
               stompDisconnectedSince = Date.now();
             }
+            notifyClipboardResendState();
           };
 
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
             connectHeaders: buildStompConnectHeaders(authSettings),
-            reconnectDelay: RECONNECT_WS_TIMER,
-            connectionTimeout: 5000,
-            heartbeatIncoming: HEARTBEAT_INTERVAL,
-            heartbeatOutgoing: 0,
+            ...createStompTransportConfig({
+              reconnectDelay: RECONNECT_WS_TIMER,
+              heartbeatIncoming: HEARTBEAT_INTERVAL,
+            }),
             forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
             onConnect: async () => {
               logServiceLifecycle('STOMP connected');
               stompDisconnectedSince = null;
               lastStompRecoveryAt = 0;
+              notifyClipboardResendState();
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
               // Subscribe to a topic
@@ -1190,6 +1200,7 @@ module.exports = async (inputData = null) => {
           });
 
           // start websocket stomp connection
+          isResendConnected = () => Boolean(stompClient?.connected);
           stompClient.activate();
 
           // send clipboard content P2S
@@ -1202,7 +1213,7 @@ module.exports = async (inputData = null) => {
             let outboundMetadata = {};
             try {
               await clearFiles();
-              if (await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
+              if (!options.manualResend && await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
                 return;
               }
 
@@ -1264,7 +1275,7 @@ module.exports = async (inputData = null) => {
 
                 // clipboad content hash
                 const hcb = await hashCB(clipContent);
-                if (await newCB(hcb)) {
+                if (await newCB(hcb) || options.manualResend) {
                   if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
@@ -1300,8 +1311,11 @@ module.exports = async (inputData = null) => {
                       type: type_,
                       status: 'Sent',
                       content: originalClipContent,
-                      metadata: outboundMetadata,
+                      metadata: options.manualResend
+                        ? { ...outboundMetadata, statusDetail: 'Manual resend' }
+                        : outboundMetadata,
                     });
+                    return true;
                   }
                 } else {
                   await appendActivityEvent({
@@ -1376,6 +1390,7 @@ module.exports = async (inputData = null) => {
           let peers = new Set(); // Current set of known peer IDs in the "room"
           let peerConnections = createSafeKeyStore(); // Map: peerId -> RTCPeerConnection
           let dataChannels = createSafeKeyStore(); // Map: peerId -> RTCDataChannel
+          isResendConnected = () => Object.values(dataChannels).some(c => c?.readyState === 'open');
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
@@ -1425,6 +1440,7 @@ module.exports = async (inputData = null) => {
             liveConnectionsCount = Object.values(dataChannels).filter(
               c => c && c.readyState === 'open',
             ).length;
+            notifyClipboardResendState();
             isP2PStatusMsgChanged = true;
             await p2pStatusMessageChanged();
           };
@@ -1639,8 +1655,9 @@ module.exports = async (inputData = null) => {
             const originalClipContent = clipContent;
             let outboundMetadata = {};
             try {
+              if (options.manualResend && !isResendConnected()) { return false; }
               await clearFiles();
-              if (await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
+              if (!options.manualResend && await shouldSuppressLocalClipboardEcho(type_, clipContent)) {
                 return;
               }
 
@@ -1688,7 +1705,7 @@ module.exports = async (inputData = null) => {
 
                 // clipboad content hash
                 const hcb = await hashCB(clipContent);
-                if (await newCB(hcb)) {
+                if (await newCB(hcb) || options.manualResend) {
                   if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
@@ -1744,13 +1761,13 @@ module.exports = async (inputData = null) => {
                       metadata.index += 1;
 
                       // send to all open DataChannels
-                      Object.entries(dataChannels).forEach(
-                        async ([peerId, channel]) => {
-                          if (channel.readyState === 'open') {
-                            await channel.send(messageJson);
-                          }
-                        },
-                      );
+                      const channels = Object.values(dataChannels).filter(c => c?.readyState === 'open');
+                      if (options.manualResend && channels.length === 0) {
+                        throw new Error('No connected peers');
+                      }
+                      for (const channel of channels) {
+                        channel.send(messageJson);
+                      }
 
                       // Update stats
                       if (metadata.isFragmented) {
@@ -1774,6 +1791,7 @@ module.exports = async (inputData = null) => {
                             ' peer(s)',
                         },
                       });
+                      return true;
                     }
                   }
                 } else {
@@ -2361,16 +2379,21 @@ module.exports = async (inputData = null) => {
           options = {},
         ) => {
           if (server_mode === 'P2S') {
-            await sendClipBoardP2S(clipContent, type_, options);
+            return await sendClipBoardP2S(clipContent, type_, options);
           } else if (server_mode === 'P2P') {
-            await sendClipBoardP2P(clipContent, type_, options);
+            return await sendClipBoardP2P(clipContent, type_, options);
           }
         };
 
+        releaseResender = registerClipboardResender({
+          send: sendClipBoard,
+          isConnected: () => !serviceRun.isCancellationRequested() && isResendConnected(),
+        });
         await startAutomaticClipboardCapture();
 
         // terminate service when wsIsRunning is false
         const stopServices = async options => {
+          releaseResender?.();
           if (server_mode === 'P2S') {
             await stopServicesP2S(options);
           } else if (server_mode === 'P2P') {
@@ -2411,6 +2434,7 @@ module.exports = async (inputData = null) => {
 
             let latest;
             try {
+              healthPhase('reading_flags');
               const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
               latest = JSON.parse(json);
             } catch (error) {
@@ -2440,6 +2464,7 @@ module.exports = async (inputData = null) => {
               runtimeSettings.enable_shizuku_clipboard_backend === 'true' &&
               activeClipboardBackend === 'paused'
             ) {
+              healthPhase('checking_shizuku');
               const reportedShizukuStatus = await getNativeShizukuStatus();
               const nativeShizukuStatus = resolveShizukuStartupStatus({
                 nativeStatus: reportedShizukuStatus,
@@ -2502,6 +2527,7 @@ module.exports = async (inputData = null) => {
                 },
               );
               try {
+                healthPhase('recovering_stomp');
                 if (stompClient.active) {
                   await stompClient.deactivate({ force: true });
                 }
@@ -2524,6 +2550,7 @@ module.exports = async (inputData = null) => {
 
             // check if ping initiated
             if (latest.echo === 'ping') {
+              healthPhase('answering_watchdog');
               await setDataInAsyncStorage('echo', 'pong');
               logServiceLifecycle('watchdog ping answered');
               try {
@@ -2540,6 +2567,7 @@ module.exports = async (inputData = null) => {
             if (Date.now() >= nextForegroundNotificationCheckAt) {
               nextForegroundNotificationCheckAt =
                 Date.now() + FOREGROUND_NOTIFICATION_CHECK_INTERVAL_MS;
+              healthPhase('checking_notification');
               await recoverForegroundNotificationIfMissing();
             }
 
@@ -2548,6 +2576,7 @@ module.exports = async (inputData = null) => {
               latest.downloadFiles === 'true' &&
               latest.filesAvailableToDownload === 'true'
             ) {
+              healthPhase('saving_files');
               try {
                 await setDataInAsyncStorage('downloadFiles', 'false');
                 const dirPath = await getDataFromAsyncStorage('dirPath');
@@ -2581,6 +2610,7 @@ module.exports = async (inputData = null) => {
                 );
               }
             }
+            healthPhase('waiting_tick');
             await sleep(1000);
           }
         }
@@ -2593,6 +2623,8 @@ module.exports = async (inputData = null) => {
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
         cleanupClipboardListeners();
         await notifee.stopForegroundService();
+      } finally {
+        releaseResender?.();
       }
     },
   );

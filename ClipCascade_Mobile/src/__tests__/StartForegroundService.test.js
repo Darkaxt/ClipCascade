@@ -116,6 +116,7 @@ const {
 const { Client } = require('@stomp/stompjs');
 const { armLocalClipboardReplay } = require('../LocalClipboardReplay');
 const StartForegroundService = require('../StartForegroundService');
+const { resendClipboardText } = require('../ClipboardResend');
 
 describe('StartForegroundService notification contract', () => {
   let storage;
@@ -275,6 +276,8 @@ describe('StartForegroundService notification contract', () => {
     const stompInstance = Client.mock.instances[0];
     await stompInstance.activate.mock.results[0].value;
 
+    expect(stompInstance.config.discardWebsocketOnCommFailure).toBe(true);
+
     expect(mockNativeEventListeners.onClipboardChange).toEqual(
       expect.any(Function),
     );
@@ -291,6 +294,20 @@ describe('StartForegroundService notification contract', () => {
     });
 
     expect(stompInstance.publish).toHaveBeenCalledTimes(2);
+    // Explicit resend bypasses both immediate duplicates and inbound echo guards.
+    expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('sent');
+    expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('sent');
+    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    await mockNativeEventListeners.onClipboardChange({
+      type: 'text', content: 'second local clipboard', backend: 'legacy',
+    });
+    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    expect(await resendClipboardText('row', () => 'x'.repeat(1048577))).toBe('failed');
+    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    stompInstance.connected = false;
+    expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('disconnected');
+    expect(stompInstance.publish).toHaveBeenCalledTimes(4);
+    stompInstance.connected = true;
     expect(appendClipboardEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         direction: 'outbound',
