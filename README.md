@@ -8,9 +8,20 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android, Windows and server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
+Windows `3.2.0.30` and Android/server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
 
 ### Latest Darkaxt Release
+
+Windows-only release `3.2.0.30` makes brief network interruptions silent. A lost
+connection notification requires 60 seconds continuously disconnected. Recovery
+is announced only for an outage that was reported, after 60 seconds continuously
+connected. Repeated reconnect attempts do not postpone the warning; flapping
+cancels pending recovery without repeating the outage warning. Reconnection itself
+still starts immediately. Manual disconnect and shutdown cancel pending notices.
+This applies to Windows P2S and P2P. Android/server remain at `3.2.0.29`; their
+artifacts are not republished under this Windows-only release.
+
+Download [Windows 3.2.0.30](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.30).
 
 Release `3.2.0.29` adds server-first client visibility and a silent, separate
 P2S control channel. `Client Alive` acknowledges a session-bound server probe;

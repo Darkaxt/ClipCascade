@@ -58,27 +58,27 @@ class ReleaseVersionConsistencyTests(unittest.TestCase):
         versions = json.loads(_read_text("version.json"))
         release_version = versions["windows"]
 
-        self.assertEqual(release_version, versions["android"])
+        android_version = versions["android"]
 
         package = json.loads(_read_text("ClipCascade_Mobile/src/package.json"))
-        self.assertEqual(release_version, package["version"].replace("-", "."))
+        self.assertEqual(android_version, package["version"].replace("-", "."))
 
         package_lock = json.loads(
             _read_text("ClipCascade_Mobile/src/package-lock.json")
         )
-        self.assertEqual(release_version, package_lock["version"].replace("-", "."))
+        self.assertEqual(android_version, package_lock["version"].replace("-", "."))
         self.assertEqual(
-            release_version,
+            android_version,
             package_lock["packages"][""]["version"].replace("-", "."),
         )
 
         gradle = _read_text("ClipCascade_Mobile/src/android/app/build.gradle")
         self.assertEqual(
-            release_version,
+            android_version,
             _match(r'versionName\s+"([^"]+)"', gradle, "Android versionName"),
         )
         self.assertEqual(
-            _android_version_code(release_version),
+            _android_version_code(android_version),
             int(_match(r"versionCode\s+(\d+)", gradle, "Android versionCode")),
         )
 

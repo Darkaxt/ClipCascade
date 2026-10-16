@@ -11,6 +11,7 @@ from core.config import Config
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
+from utils.connection_notifications import ConnectionNotifications
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
 from utils.activity_log import ActivityLog
@@ -35,7 +36,10 @@ class STOMPManager(WSInterface):
         self.notification_manager = NotificationManager(self.config)
         self.request_manager = RequestManager(self.config)
         self.sys_tray: TaskbarPanel = None
-        self.first_conn_lost = True
+        self.connection_notifications = ConnectionNotifications(
+            lambda **kwargs: self.notification_manager.notify(**kwargs),
+            60 if PLATFORM == WINDOWS else 0,
+        )
         self.is_login_phase = is_login_phase
         self.client = None
         self.clipboard_manager.detected_callback = lambda type_: report_clipboard_detected(self.client, type_)
@@ -79,6 +83,7 @@ class STOMPManager(WSInterface):
             self.config.data["csrf_token"] = ""
             self.config.save()
             self.clipboard_manager.stop()
+            self.connection_notifications.reset()
             if not self.is_login_phase:
                 self.notification_manager.notify(
                     title=f"{APP_NAME}: Login Required",
@@ -139,12 +144,7 @@ class STOMPManager(WSInterface):
                     raise ConnectionError("WebSocket closed at STOMP handshake completion")
                 self.is_connected = True
             self.is_auto_reconnecting = False
-            if not self.first_conn_lost:
-                self.first_conn_lost = True
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Restored 🔗",
-                    message="Connection re-established",
-                )
+            self.connection_notifications.connected()
 
             # send event
             self.clipboard_manager.on_copy(self.send)
@@ -169,12 +169,7 @@ class STOMPManager(WSInterface):
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
             self.is_auto_reconnecting = True
-            if self.first_conn_lost:
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
-                    message="Check your internet connection. Retrying...",
-                )
-                self.first_conn_lost = False
+            self.connection_notifications.lost()
             self._start_reconnect()
 
     def _start_reconnect(self):
@@ -319,12 +314,12 @@ class STOMPManager(WSInterface):
 
     def disconnect(self):
         self.disconnected = True
+        self.connection_notifications.reset()
         self._reconnect_stop.set()
         self._reconnect_needed.set()
         self.is_auto_reconnecting = False
         self.is_connected = False
         with self._connect_lock:
-            self.first_conn_lost = True
             if self.client is not None:
                 self.client.disconnect()
                 logging.info("Websocket disconnected")

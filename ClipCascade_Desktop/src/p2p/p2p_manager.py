@@ -12,6 +12,7 @@ from interfaces.ws_interface import WSInterface
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
+from utils.connection_notifications import ConnectionNotifications
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
 from utils.activity_log import ActivityLog
@@ -43,7 +44,10 @@ class P2PManager(WSInterface):
         self.notification_manager = NotificationManager(self.config)
         self.request_manager = RequestManager(self.config)
         self.sys_tray: TaskbarPanel = None
-        self.first_conn_lost = True
+        self.connection_notifications = ConnectionNotifications(
+            lambda **kwargs: self.notification_manager.notify(**kwargs),
+            60 if PLATFORM == WINDOWS else 0,
+        )
         self.is_login_phase = is_login_phase
         self.ws_client = None
         self.is_connected = False
@@ -260,12 +264,7 @@ class P2PManager(WSInterface):
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
             self.is_auto_reconnecting = True
-            if self.first_conn_lost:
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
-                    message="Check your internet connection. Retrying...",
-                )
-                self.first_conn_lost = False
+            self.connection_notifications.lost()
             time.sleep(RECONNECT_WS_TIMER)  # seconds
             self.connect()
 
@@ -340,12 +339,7 @@ class P2PManager(WSInterface):
             self.is_connected = True
             self.is_auto_reconnecting = False
             self.loop.call_soon_threadsafe(self._restart_dc_heartbeat)
-            if not self.first_conn_lost:
-                self.first_conn_lost = True
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Restored 🔗",
-                    message="Connection re-established",
-                )
+            self.connection_notifications.connected()
         except Exception as e:
             logging.error(f"Failed to open P2P signaling session: {e}")
 
@@ -369,6 +363,7 @@ class P2PManager(WSInterface):
             self.ws_client = None
 
     def disconnect(self):
+        self.connection_notifications.reset()
         self.schedule_task(self._disconnect())
 
     async def _disconnect(self):
@@ -380,7 +375,7 @@ class P2PManager(WSInterface):
         try:
             self.clipboard_manager.reset_duplicate_detector()
             self.disconnected = True
-            self.first_conn_lost = True
+            self.connection_notifications.reset()
 
             # Close the websocket
             try:
