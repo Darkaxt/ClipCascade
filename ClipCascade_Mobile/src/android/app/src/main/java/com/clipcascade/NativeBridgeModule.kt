@@ -22,6 +22,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
@@ -48,6 +50,14 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
     private val secureRandom = SecureRandom()
+    private val serviceTickHandler = Handler(Looper.getMainLooper())
+
+    // React Native frame timers can pause with no resumed Activity. Service
+    // polling must continue independently of that UI lifecycle.
+    @ReactMethod
+    fun waitForServiceTick(promise: Promise) {
+        serviceTickHandler.postDelayed({ promise.resolve(true) }, 1000L)
+    }
 
     override fun getName(): String {
         return "NativeBridgeModule"
@@ -389,6 +399,7 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
 
     override fun onCatalystInstanceDestroy() {
+        serviceTickHandler.removeCallbacksAndMessages(null)
         asyncBridge.disconnect()
     }
 }

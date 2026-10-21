@@ -2410,8 +2410,10 @@ module.exports = async (inputData = null) => {
           cleanupClipboardListeners();
         };
 
-        function sleep(ms) {
-          return new Promise(res => setTimeout(res, ms));
+        function waitForServiceTick() {
+          return serviceRun.waitForTick(() =>
+            NativeBridgeModule.waitForServiceTick(),
+          );
         }
 
         async function pollFlagsLoop() {
@@ -2450,7 +2452,7 @@ module.exports = async (inputData = null) => {
                 'wsStatusMessage',
                 '⚠️ Service health polling delayed: ' + error,
               );
-              await sleep(1000);
+              await waitForServiceTick();
               continue;
             }
 
@@ -2618,7 +2620,7 @@ module.exports = async (inputData = null) => {
               }
             }
             healthPhase('waiting_tick');
-            await sleep(1000);
+            await waitForServiceTick();
           }
         }
 

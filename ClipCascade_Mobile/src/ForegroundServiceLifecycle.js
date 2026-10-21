@@ -23,6 +23,7 @@ export const createForegroundServiceLifecycle = () => {
 
       let finishRun;
       let signalCancellation;
+      let wakeTick = null;
       const cancellation = new Promise(resolve => {
         signalCancellation = resolve;
       });
@@ -32,6 +33,7 @@ export const createForegroundServiceLifecycle = () => {
           if (!this.cancellationRequested) {
             this.cancellationRequested = true;
             signalCancellation();
+            wakeTick?.();
           }
         },
         isCancellationRequested() {
@@ -39,6 +41,27 @@ export const createForegroundServiceLifecycle = () => {
         },
         waitForCancellation() {
           return cancellation;
+        },
+        waitForTick(wait) {
+          if (this.cancellationRequested) {
+            return Promise.resolve();
+          }
+          return new Promise((resolve, reject) => {
+            const complete = error => {
+              if (wakeTick !== cancel) {
+                return;
+              }
+              wakeTick = null;
+              if (error) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            };
+            const cancel = () => complete();
+            wakeTick = cancel;
+            Promise.resolve().then(wait).then(() => complete(), complete);
+          });
         },
       };
       run.finished = new Promise(resolve => {

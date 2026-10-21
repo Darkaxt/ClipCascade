@@ -94,6 +94,7 @@ mockNativeModules = {
   NativeBridgeModule: {
     clearInactiveServiceNotification: jest.fn(),
     getFlagsSync: jest.fn(),
+    waitForServiceTick: jest.fn(() => new Promise(resolve => setTimeout(resolve, 1000))),
   },
   ClipboardListener: {
     startListening: jest.fn(async () => 'enabled'),
