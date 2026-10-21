@@ -33,7 +33,7 @@ local scheduling/lifecycle defect, not evidence of lost credentials or Wi-Fi.
    Local React Native JavaTimerManager confirms timers stop when host is paused
    and no headless JS task is active; a foreground Android notification alone
    does not establish an active HeadlessJsTaskContext task.
-2. Verification, Android-only release and download proof: ACTIVE (B4).
+2. Verification, Android-only release and download proof: COMPLETE (B4).
    Pre-publication gates passed: mobile suite, ESLint (no errors), per-platform
    metadata consistency, signed assembleRelease, built APK versionCode 3020031 /
    versionName 3.2.0.31, original signer and all four existing ABIs preserved.
@@ -45,5 +45,34 @@ local scheduling/lifecycle defect, not evidence of lost credentials or Wi-Fi.
    (Jest covers JS); native concurrency is not independently measured. Build and
    supervisor exit codes were 0; post-build daemon exit was verified. The app's
    live display title was unavailable, so the gate label remained Unknown.
+
+## Final Delivery Reconciliation
+
+B1-B4 are satisfied by the integrated implementation and release verification
+above. Android-only normal release 3.2.0.31 is published at
+https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.31 from
+74d7546e8eac941b61922f197fcddf6b3b02e3a0; the remote version-consistency check
+passed. Windows and server artifacts are not included in this Android release.
+
+The independently downloaded APK matches SHA256SUMS and the original signing
+certificate. Downloaded versionName is 3.2.0.31, versionCode is 3020031, package
+is com.darkaxt.clipcascade, and the four existing ABIs remain included.
+
+- APK SHA-256: F12BAE419F108DCDF3B01F14C0E849982DD13F7F48E8BA8F4672C114FDC0BA3D
+- Signer SHA-256: fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c
+
+Downloaded dex confirms the ReactMethod uses Handler.postDelayed with 1000 ms.
+Persistent build and packaged-code evidence is retained under
+private/releases/3.2.0.31/verification. The full mobile Jest suite, focused lint,
+metadata consistency and signed gated build passed on the released source.
+
+No Android installation or device endurance verification was performed; the user
+owns that update and confirmation. This delivery does not claim that every
+possible future disconnect is fixed. No credentials, data, DNS/Tailscale policy
+or production server configuration were changed.
+
+Reviewed scratch transaction ceb285e8e99ff62001d0c03c8a308929 removed all 3374
+exact task-owned entries (125059481 logical bytes), with no errors or exclusions.
+Release deliverables and diagnostic evidence were preserved.
 
 No tracked deferrals. Windows/server remain unchanged.
