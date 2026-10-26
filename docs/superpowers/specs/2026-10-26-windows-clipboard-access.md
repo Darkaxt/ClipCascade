@@ -22,7 +22,9 @@ Normal release and local Windows delivery are authorized; Android is unchanged.
   and contention without modifying the interactive clipboard. Preserve deduplication, replay, transport,
   credentials, DATA and existing tray/window icons.
 - W5: Publish a matching Windows-only release; independently download and verify
-  PE version, digest and packaged code. Install locally after a graceful exit,
+  PE version, digest and packaged code. Request graceful local shutdown first;
+  if teardown demonstrably stalls, preserve diagnostics and DATA before stopping
+  only the verified old process for replacement. Install locally,
   preserve DATA and verify a fresh production Client Alive ACK. Do not claim an
   ACK proves clipboard application. No Android/server installation or changes.
 
@@ -38,10 +40,19 @@ Normal release and local Windows delivery are authorized; Android is unchanged.
    No material design debt within scope; one shared acquisition boundary replaces
    the competing pyperclip/direct writes and uncoordinated monitor reads.
    No blockers or deferrals remain in this stage.
-2. Windows release and local activation: ACTIVE (W5).
+2. Windows release and local activation: COMPLETE (W5).
    Acceptance: published/downloaded/installed artifact identity and fresh ACK.
-   Blockers: package/release/local activation and verification outstanding
-   (internal); resolved by delivery below. Overall completion depends on these.
+   Verified: normal published Windows release 3.2.0.32 targets source commit
+   395e21c387bee96aed1acd0e0110d0a255a2cb59. Independently retrieved EXE matches
+   the built and installed artifact, PE version 3.2.0.32, 57,964,640 bytes,
+   SHA256 1bd33fc7656c377eabdeef03926bafc5bef3a427e89d12ee3232b3d8ff2682e3.
+   Packaged clipboard modules/constants match verified source and icons match
+   maintained assets. Version consistency CI passed.
+   Saved DATA digest is unchanged. Exactly one installed bootloader/app pair
+   runs; a fresh session-bound Windows 3.2.0.32 Client Alive ACK was independently
+   read back at 2026-10-26T00:43:07.664642153Z. This is transport/control evidence,
+   not proof of remote clipboard application. Android/server are untouched.
+   No requirement blockers or tracked deferrals remain.
 
 No tracked deferrals.
 
@@ -52,3 +63,20 @@ the actual owner-window Open/Close, contention and failure-cleanup boundary in
 read-only mode. Text/image Set failures and format handling use fault injection;
 physical native content writes are not claimed. This preserves the original
 no-interactive-clipboard-mutation constraint and product behavior requirements.
+
+Local replacement detail: the native tray-loop stop disconnected the old client,
+but bypassed its normal Quit callback and left Python in ImageTk.__del__ during
+teardown. A read-only stack capture found only the old main thread at that call.
+After confirming executable/PID/parent/start identity and unchanged DATA, only
+that old process was terminated; replacement then completed. This maintenance
+shutdown route is not claimed as a verified preventive application shutdown fix.
+The wording above records this evidence-based deployment choice, not a change
+to requested clipboard behavior. Private logs/stack and the old release remain
+available for diagnosis/rollback.
+
+Final reconciliation: W1-W4 verified by the unchanged implementation tests and
+native read-only checks; W5 verified at the published/downloaded/installed and
+production-control boundaries above. Exact task scratch was removed through
+transactional cleanup (21 members, 126,944,576 bytes); no residuals or errors.
+Maintained release artifacts, diagnostics, rollback and active runtime scratch
+were preserved. All implementation and delivery stages are COMPLETE.
