@@ -55,20 +55,52 @@ timestamp-only Android repair. No UI redesign is needed for this bug-fix branch.
    No blockers or tracked deferrals remain in this stage. Scope assessment: native
    observation and per-transport delivery are distinct bounded state owners, not
    competing duplicate filters; no material refactoring debt needs another stage.
-2. Final release and activation: ACTIVE (A6).
+2. Final release and activation: COMPLETE (A6).
    Acceptance: completed stage 1, release packages from verified source, public
    download read-back, unchanged signing/data and verified local/server activation.
    Package verification passes: APK 3020033/3.2.0.33 with unchanged signer,
    Windows PE 3.2.0.33 with seven packaged modules matching verified source and
    unchanged icons, and server JAR compiled version 3.2.0.33. All three hashes
    are recorded in the release SHA256SUMS.
-   Outstanding internal delivery criteria: publication/download verification and
-   production/local activation. Private reviewable delivery scripts are in
-   private/releases/3.2.0.33; server update preserves its current JRE image,
-   environment and database/log binds, with an exact-image/compose rollback.
-   Windows update preserves DATA and the matching 3.2.0.32 rollback package.
-   Next: commit/publish, independently download/verify, activate, verify and clean
-   task scratch. No external blocker or tracked deferral.
+   Published normal GitHub release 3.2.0.33, source/tag
+   b4aeeae28b4d14d87e11582ce6268283bfca3aad. Version-consistency CI passed.
+   Independently downloaded all assets and verified hashes, PE/package versions,
+   Windows packaged code/icons, Android signature and compiled JAR version.
+   Production API independently reports server 3.2.0.33. Running JAR matches the
+   downloaded release hash; the existing JRE base, environment values and
+   database/log binds are preserved. First activation rolled back because a
+   deployment assertion compared environment list order; structured key/value
+   comparison verifies the successful activation. Original image/compose remain
+   available for rollback; future compose builds use the versioned build context.
+   Local Windows installed EXE matches the downloaded package and reports
+   3.2.0.33 through a fresh session-bound Client Alive ACK. DATA hash is unchanged
+   before/after replacement and startup; matching 3.2.0.32 rollback is retained.
+   Both legacy Android clients reconnected automatically and acknowledged fresh
+   control probes after the restart. No phone installation/restart, clipboard
+   test injection, credential/encryption-key change or DNS/Tailscale change.
+   Application-ACK behavior is verified by real authenticated WebSocket
+   integration and client apply/failure tests, not by the control ACKs. Physical
+   Android 3.2.0.33 application-ACK testing remains explicitly outside this
+   activation claim because installation is user-managed; old 3.2.0.31 clients
+   remain unconfirmed recipients. Release availability is verified, not device
+   acceptance of a version that has not been installed.
+   Reviewed exact task scratch was cleaned (330,509,705 bytes), preserving release
+   packages, diagnostics, rollback and the installed client's persistent scratch.
+   No unresolved release blocker or tracked deferral. Final reconciliation A1-A6
+   is satisfied at the stated verification boundaries; no new design debt found.
+
+## Delivered Package SHA-256
+
+- Android: d88c86db6dc80593ec4e6b2f04265a7a1b096eccc1975d81508c23a2f2678557
+- Windows: 42f85f702e38b7d4bb27afb590a8dd9a00ccb4addf104104de93cf46181e7577
+- Server: e6391386d2e1d60bfab4299d05a8c7e8ffe8c4d36fdfa32fa642f4ef1f9878c7
+
+Android used Gradle 9.1.0 and Java 21 through the shared build gate, with observed
+two Gradle workers, parallel disabled, 3 GiB Gradle heap and one 512 MiB test fork.
+Kotlin 3 GiB was requested, not independently observed as a separate JVM heap.
+Build/helper exits were zero and post-build daemon exit was verified. No memory
+increase or lifecycle exception was needed. These are not a host-wide memory or
+Metro/native-concurrency guarantee.
 
 ## Investigation Evidence
 
