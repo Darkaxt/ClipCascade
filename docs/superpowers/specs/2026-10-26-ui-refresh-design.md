@@ -72,9 +72,20 @@ the verified 3.2.0.33 protocol release; do not modify its transport behavior.
    preserved. Windows packaged GUI/source and control artwork match current files.
    APK DEX inspection confirms the release preview hook returns only an empty
    string. U1-U4/U6 reconciliation has no remaining blockers or deferrals.
-3. Final release and activation: ACTIVE (U7). Requires completed native UI
-   acceptance, versions/signing, published package verification and local Windows
-   activation. Do not release prototypes as a finished application update.
+3. Final release and activation: COMPLETE (U7). Published normal release
+   3.2.0.34 from source/tag commit 88329da6e672f749d443a9b9c84051e9c4b28d18;
+   remote tag peeled back to that commit and client-version CI passed.
+   Both client assets and SHA256SUMS read back as uploaded, not draft/prerelease.
+   Independently downloaded packages passed hash, embedded version, APK signer,
+   disabled preview DEX and Windows GUI/source/artwork checks. No stale server
+   JAR was uploaded; server 3.2.0.33 is unchanged.
+   Local Windows installed from the verified download; executable source/artwork
+   verified again after installation. DATA hash unchanged. Exact parent/child
+   process pair verified, with Python DLL loaded from persistent D: runtime.
+   Fresh session-bound Client Alive acknowledged Windows 3.2.0.34 at
+   2026-10-26T21:15:19.029453276Z (probe d56b20ef-94a7-4e20-b416-1096f8813d37).
+   This proves control connectivity, not clipboard application delivery. Android
+   installation remains user-managed; no user phone was installed or restarted.
 
 No tracked deferrals. Design direction A is selected; implementation/publication
 remain authorized without another approval checkpoint.
