@@ -5,11 +5,16 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.user.SimpSession;
@@ -21,6 +26,59 @@ import com.acme.clipcascade.service.ClipboardFanoutService;
 import com.acme.clipcascade.service.WebSocketClientSessionRegistry;
 
 class ClipboardFanoutServiceTests {
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void deliveryRequiresAppliedAckFromEveryActualRecipientForTheSameUserAndMessage() {
+        SimpMessagingTemplate messaging = mock(SimpMessagingTemplate.class);
+        SimpUserRegistry registry = mock(SimpUserRegistry.class);
+        ClipboardFanoutService fanout = new ClipboardFanoutService(messaging, registry,
+                mock(WebSocketClientSessionRegistry.class));
+        SimpUser user = userWithSessions("admin", "sender", "phone", "laptop");
+        when(registry.getUser("admin")).thenReturn(user);
+        ClipboardData data = new ClipboardData("encrypted", "text",
+                Map.of("deliveryId", "id-1", "sourceSessionId", "forged"));
+        fanout.sendToOtherClientSessions("admin", "sender", null, data);
+        assertEquals("sender", data.getMetadata().get("sourceSessionId"));
+        Map<String, Object> ack = Map.of("protocol", 1, "ackType", "clipboard_applied",
+                "sourceSessionId", "sender", "deliveryId", "id-1");
+        fanout.acknowledge("admin", "sender", ack);
+        fanout.acknowledge("different-user", "phone", ack);
+        fanout.acknowledge("admin", "not-a-recipient", ack);
+        fanout.acknowledge("admin", "phone", ack);
+        fanout.acknowledge("admin", "laptop", ack);
+        ArgumentCaptor<Map> states = ArgumentCaptor.forClass(Map.class);
+        verify(messaging, times(3)).convertAndSendToUser(eq("admin"), eq("/queue/clipboard-delivery"),
+                states.capture(), headersForSession("sender"));
+        assertFalse((Boolean) states.getAllValues().get(0).get("complete"));
+        assertFalse((Boolean) states.getAllValues().get(1).get("complete"));
+        assertTrue((Boolean) states.getAllValues().get(2).get("complete"));
+        assertEquals(2, states.getValue().get("expected"));
+
+        // Reusing a delivered ID for different ciphertext cannot inherit its ACK.
+        fanout.sendToOtherClientSessions("admin", "sender", null,
+                new ClipboardData("different", "text", Map.of("deliveryId", "id-1")));
+        verify(messaging, times(3)).convertAndSendToUser(eq("admin"), eq("/queue/clipboard-delivery"),
+                org.mockito.ArgumentMatchers.any(), headersForSession("sender"));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void noRecipientsNeverMeansDelivered() {
+        SimpMessagingTemplate messaging = mock(SimpMessagingTemplate.class);
+        SimpUserRegistry registry = mock(SimpUserRegistry.class);
+        ClipboardFanoutService fanout = new ClipboardFanoutService(messaging, registry,
+                mock(WebSocketClientSessionRegistry.class));
+        SimpUser user = userWithSessions("admin", "sender");
+        when(registry.getUser("admin")).thenReturn(user);
+        fanout.sendToOtherClientSessions("admin", "sender", null,
+                new ClipboardData("encrypted", "text", Map.of("deliveryId", "id-1")));
+        ArgumentCaptor<Map> state = ArgumentCaptor.forClass(Map.class);
+        verify(messaging).convertAndSendToUser(eq("admin"), eq("/queue/clipboard-delivery"),
+                state.capture(), headersForSession("sender"));
+        assertEquals(0, state.getValue().get("expected"));
+        assertFalse((Boolean) state.getValue().get("complete"));
+    }
 
     @Test
     void sendsToOtherSessionsButNotTheOriginSession() {

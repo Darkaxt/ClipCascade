@@ -15,6 +15,7 @@ from utils.connection_notifications import ConnectionNotifications
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
 from utils.activity_log import ActivityLog
+from utils.clipboard_delivery import ClipboardDelivery
 from core.constants import *
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
@@ -42,6 +43,7 @@ class STOMPManager(WSInterface):
         )
         self.is_login_phase = is_login_phase
         self.client = None
+        self.delivery = ClipboardDelivery()
         self.clipboard_manager.detected_callback = lambda type_: report_clipboard_detected(self.client, type_)
         self.is_connected = False
         self.disconnected = False
@@ -159,6 +161,8 @@ class STOMPManager(WSInterface):
 
     def _subscribe(self, client):
         client.subscribe(destination=SUBSCRIPTION_DESTINATION, callback=self._receive)
+        self.delivery.reset()
+        client.subscribe(destination='/user/queue/clipboard-delivery', callback=self._delivery_status)
         attach_client_health(client, APP_VERSION)
 
     def _on_close(self, client=None):
@@ -208,19 +212,27 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 replay_text = payload if payload_type.lower() == "text" else None
-                if self.clipboard_manager.has_clipboard_changed(payload) or force:
+                if not force and self.clipboard_manager.is_remote_clipboard_echo(payload):
+                    self.append_activity('Local', payload_type, 'Ignored',
+                                         ActivityLog.preview_payload(payload, payload_type),
+                                         'Post-apply clipboard echo; no resend', replay_text=replay_text)
+                    return False
+                if force or not self.delivery.should_suppress(payload, payload_type):
                     preview = ActivityLog.preview_payload(payload, payload_type)
+                    delivery_id = self.delivery.begin(payload, payload_type)
                     if self.config.data["cipher_enabled"]:
                         payload = CipherManager.encode_to_json_string(
                             **self.cipher_manager.encrypt(payload)
                         )
-                    body = json.dumps({"payload": payload, "type": payload_type})
+                    body = json.dumps({"payload": payload, "type": payload_type,
+                                       "metadata": {"deliveryId": delivery_id}})
                     self.client.send(destination=SEND_DESTINATION, body=body)
                     self.append_activity(
                         "Local",
                         payload_type,
                         "Sent",
                         preview,
+                        "Awaiting clipboard application ACK",
                         replay_text=replay_text,
                     )
                     return True
@@ -238,6 +250,21 @@ class STOMPManager(WSInterface):
             self.append_activity("Local", payload_type, "Error", "", str(e))
         return False
 
+    def _delivery_status(self, frame):
+        try:
+            type_ = self.delivery.acknowledge(json.loads(frame.body))
+            if type_:
+                self.append_activity('Local', type_, 'Delivered', '',
+                                     'All targeted clients acknowledged clipboard application')
+        except (ValueError, TypeError, AttributeError):
+            logging.warning('Ignored malformed clipboard delivery state')
+
+    def _ack_applied(self, metadata):
+        self.client.send(destination='/app/clipboard-ack', body=json.dumps({
+            'protocol': 1, 'ackType': 'clipboard_applied',
+            'deliveryId': metadata['deliveryId'], 'sourceSessionId': metadata['sourceSessionId'],
+        }))
+
     def _receive(self, frame: any) -> str:
         try:
             if self.is_connected:
@@ -250,6 +277,17 @@ class STOMPManager(WSInterface):
                     )
 
                 preview = ActivityLog.preview_payload(payload, payload_type)
+                metadata = body.get('metadata') or {}
+                delivery_id = metadata.get('deliveryId')
+                origin = metadata.get('sourceSessionId')
+                acknowledged_protocol = (PLATFORM == WINDOWS
+                                         and isinstance(delivery_id, str) and 0 < len(delivery_id) <= 64
+                                         and isinstance(origin, str) and 0 < len(origin) <= 128)
+                fingerprint = self.delivery.fingerprint(payload, payload_type)
+                delivery_key = (origin, delivery_id)
+                if acknowledged_protocol and self.delivery.was_applied(delivery_key, fingerprint):
+                    self._ack_applied(metadata)
+                    return
                 replay_text = payload if payload_type.lower() == "text" else None
                 self.append_activity(
                     "Remote",
@@ -258,10 +296,13 @@ class STOMPManager(WSInterface):
                     preview,
                     replay_text=replay_text,
                 )
-                if self.clipboard_manager.has_clipboard_changed(payload):
-                    self.clipboard_manager.base64_to_clipboard(
+                if acknowledged_protocol or self.clipboard_manager.has_clipboard_changed(payload):
+                    applied = self.clipboard_manager.base64_to_clipboard(
                         base64_string=payload, type_=payload_type
                     )
+                    if applied and acknowledged_protocol:
+                        self.delivery.mark_applied(delivery_key, fingerprint)
+                        self._ack_applied(metadata)
                 else:
                     self.append_activity(
                         "Remote",

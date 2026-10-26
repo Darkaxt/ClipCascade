@@ -143,6 +143,12 @@ class ClipboardManager:
     def reset_duplicate_detector(self):
         self.previous_clipboard_hash = None
         self.previous_clipboard_hash_at = 0.0
+        self._remote_echo = None
+
+    def is_remote_clipboard_echo(self, payload):
+        echo = getattr(self, '_remote_echo', None)
+        return bool(echo and echo[0] == ClipboardManager.hash_clipboard(payload)
+                    and time.monotonic() - echo[1] < DUPLICATE_CLIPBOARD_SUPPRESSION_WINDOW_SEC)
 
     def has_clipboard_changed(self, payload: str, now: float = None) -> bool:
         """
@@ -286,6 +292,8 @@ class ClipboardManager:
 
     def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
         type_ = type_.lower()
+        if type_ in ('text', 'image'):
+            self._remote_echo = (ClipboardManager.hash_clipboard(base64_string), time.monotonic())
         try:
             if type_ == "text":
                 txt = base64_string
@@ -295,6 +303,7 @@ class ClipboardManager:
                     self.append_activity(
                         "Remote", type_, "Applied", preview, replay_text=txt
                     )
+                    return True
                 else:
                     self.append_activity(
                         "Remote", type_, "Ignored", preview, "Size limit exceeded"
@@ -308,6 +317,7 @@ class ClipboardManager:
                 if self.is_clipboard_size_within_limit(img, type_):
                     self.paste(img, type_)
                     self.append_activity("Remote", type_, "Applied", preview)
+                    return True
                 else:
                     self.append_activity(
                         "Remote", type_, "Ignored", preview, "Size limit exceeded"
@@ -319,7 +329,7 @@ class ClipboardManager:
                 preview = ActivityLog.preview_files(file_objects)
                 if self.is_clipboard_size_within_limit(file_objects, type_):
                     self.paste(file_objects, type_)
-                    self.append_activity("Remote", type_, "Applied", preview)
+                    self.append_activity("Remote", type_, "Available", preview, "File download queued; not applied to clipboard")
                 else:
                     self.append_activity(
                         "Remote", type_, "Ignored", preview, "Size limit exceeded"
@@ -327,6 +337,8 @@ class ClipboardManager:
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
             self.append_activity("Remote", type_, "Error", "", str(e))
+        self._remote_echo = None
+        return False
 
     @staticmethod
     def execute_command(*args, input_data):

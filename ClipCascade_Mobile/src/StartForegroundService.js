@@ -41,6 +41,7 @@ import {
   shouldSuppressClipboardEcho,
 } from './ClipboardEchoSuppression';
 import { createClipboardDuplicateSuppression } from './ClipboardDuplicateSuppression';
+import { createClipboardDelivery, hasClipboardDelivery } from './ClipboardDelivery';
 import { consumeLocalClipboardReplay } from './LocalClipboardReplay';
 import {
   createSafeKeyStore,
@@ -313,6 +314,7 @@ module.exports = async (inputData = null) => {
         const newCB = async hcb => {
           return clipboardDuplicateSuppression.accept(hcb);
         };
+        const clipboardDelivery = createClipboardDelivery();
 
         const calculateBase64DecodedLength = async base64Str => {
           // Calculates the decoded byte length of a Base64-encoded string.
@@ -1041,6 +1043,16 @@ module.exports = async (inputData = null) => {
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
             onConnect: async () => {
               logServiceLifecycle('STOMP connected');
+              clipboardDelivery.resetOutbound();
+              stompClient.subscribe('/user/queue/clipboard-delivery', async frame => {
+                try {
+                  const deliveredType = clipboardDelivery.acknowledge(JSON.parse(frame.body));
+                  if (deliveredType) {
+                    await appendActivityEvent({ direction: 'outbound', type: deliveredType, status: 'Delivered',
+                      content: '', metadata: { statusDetail: 'All targeted clients acknowledged clipboard application' } });
+                  }
+                } catch { /* A malformed control frame must not interrupt clipboard sync. */ }
+              });
               stompDisconnectedSince = null;
               lastStompRecoveryAt = 0;
               notifyClipboardResendState();
@@ -1078,7 +1090,7 @@ module.exports = async (inputData = null) => {
                     // hash clipboard content
                     const hcb = await hashCB(cb);
                     const operationKey = `inbound:${type_}:${hcb}`;
-                    if (!(await newCB(hcb))) {
+                    if (!hasClipboardDelivery(body.metadata) && !(await newCB(hcb))) {
                       return;
                     }
 
@@ -1092,11 +1104,12 @@ module.exports = async (inputData = null) => {
                     });
 
                     // validate clipboard size
-                    if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                    const applied = await clipboardDelivery.applyOnce(body.metadata, cb, type_, async () => {
+                      if (!(await validateClipboardSize(cb, type_, 'Inbound'))) { return false; }
                       // set clipboard content
                       if (type_ === 'text') {
                         await setLocalClipboardEchoSuppression(type_, hcb);
-                        Clipboard.setString(cb);
+                        await NativeBridgeModule.copyTextToClipboard(cb);
                       } else if (type_ === 'image') {
                         await setLocalClipboardEchoSuppression(type_, hcb);
                         localImageEchoGuard.arm();
@@ -1113,6 +1126,11 @@ module.exports = async (inputData = null) => {
                           'filesAvailableToDownload',
                           'true',
                         );
+                        await appendActivityEvent({ direction: 'inbound', type: type_, status: 'Available',
+                          content: cb, metadata: { ...inboundMetadata, statusDetail: 'File download queued; not applied to clipboard' }, operationKey });
+                        return false;
+                      } else {
+                        return false;
                       }
                       await appendActivityEvent({
                         direction: 'inbound',
@@ -1122,6 +1140,13 @@ module.exports = async (inputData = null) => {
                         metadata: inboundMetadata,
                         operationKey,
                       });
+                      return true;
+                    });
+                    if (applied && hasClipboardDelivery(body.metadata)) {
+                      stompClient.publish({ destination: '/app/clipboard-ack', body: JSON.stringify({
+                        protocol: 1, ackType: 'clipboard_applied', deliveryId: body.metadata.deliveryId,
+                        sourceSessionId: body.metadata.sourceSessionId,
+                      }) });
                     }
                   }
                 } catch (e) {
@@ -1280,9 +1305,7 @@ module.exports = async (inputData = null) => {
                   clipContent = JSON.stringify(temp);
                 }
 
-                // clipboad content hash
-                const hcb = await hashCB(clipContent);
-                if (await newCB(hcb) || options.manualResend) {
+                if (!clipboardDelivery.shouldSuppress(clipContent, type_) || options.manualResend) {
                   if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',
@@ -1295,6 +1318,8 @@ module.exports = async (inputData = null) => {
                       },
                     });
                   } else {
+                    const deliveryId = await generateUuid();
+                    clipboardDelivery.begin(deliveryId, clipContent, type_);
                     if (cipher_enabled === 'true') {
                       //ecrypt
                       clipContent = await encrypt(clipContent);
@@ -1311,6 +1336,7 @@ module.exports = async (inputData = null) => {
                       body: JSON.stringify({
                         payload: String(clipContent),
                         type: type_,
+                        metadata: { deliveryId },
                       }),
                     });
                     await appendActivityEvent({
@@ -1320,7 +1346,7 @@ module.exports = async (inputData = null) => {
                       content: originalClipContent,
                       metadata: options.manualResend
                         ? { ...outboundMetadata, statusDetail: 'Manual resend' }
-                        : outboundMetadata,
+                        : { ...outboundMetadata, statusDetail: 'Awaiting clipboard application ACK' },
                     });
                     return true;
                   }
@@ -1710,9 +1736,8 @@ module.exports = async (inputData = null) => {
                   clipContent = JSON.stringify(temp);
                 }
 
-                // clipboad content hash
-                const hcb = await hashCB(clipContent);
-                if (await newCB(hcb) || options.manualResend) {
+                // P2P has no application ACKs: its delivery state stays unconfirmed.
+                if (!clipboardDelivery.shouldSuppress(clipContent, type_) || options.manualResend) {
                   if (localImageEchoGuard.shouldSuppress(type_)) {
                     await appendActivityEvent({
                       direction: 'outbound',

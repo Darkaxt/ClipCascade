@@ -32,6 +32,72 @@ class ClientHealthIntegrationTests {
     @LocalServerPort int port;
     @Autowired ApiClientService keys;
     @Autowired TestRestTemplate rest;
+    @Autowired org.springframework.messaging.simp.user.SimpUserRegistry registry;
+
+    @Test
+    void clipboardApplicationAckTraversesRealAuthenticatedSessionBoundChannels() throws Exception {
+        var senderKey = keys.createClientKey("admin", "ACK sender", Set.of("sync"));
+        var phoneKey = keys.createClientKey("admin", "ACK phone", Set.of("sync"));
+        var laptopKey = keys.createClientKey("admin", "ACK laptop", Set.of("sync"));
+        WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
+        client.setMessageConverter(new MappingJackson2MessageConverter());
+        java.util.ArrayList<StompSession> sessions = new java.util.ArrayList<>();
+        try {
+            StompSession sender = open(client, senderKey.apiKey()); sessions.add(sender);
+            StompSession phone = open(client, phoneKey.apiKey()); sessions.add(phone);
+            StompSession laptop = open(client, laptopKey.apiKey()); sessions.add(laptop);
+            var senderCopies = new java.util.concurrent.LinkedBlockingQueue<Map<String, Object>>();
+            var phoneCopies = new java.util.concurrent.LinkedBlockingQueue<Map<String, Object>>();
+            var laptopCopies = new java.util.concurrent.LinkedBlockingQueue<Map<String, Object>>();
+            var deliveries = new java.util.concurrent.LinkedBlockingQueue<Map<String, Object>>();
+            sender.subscribe("/user/queue/cliptext", collector(senderCopies));
+            phone.subscribe("/user/queue/cliptext", collector(phoneCopies));
+            laptop.subscribe("/user/queue/cliptext", collector(laptopCopies));
+            sender.subscribe("/user/queue/clipboard-delivery", collector(deliveries));
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(registry.getUser("admin")
+                    .getSessions().stream().mapToInt(session -> session.getSubscriptions().size()).sum()).isEqualTo(4));
+            sender.send("/app/cliptext", Map.of("payload", "opaque-encrypted-test", "type", "text",
+                    "metadata", Map.of("deliveryId", "delivery-integration", "sourceSessionId", "forged-origin")));
+            Map<String, Object> phoneCopy = phoneCopies.poll(10, TimeUnit.SECONDS);
+            Map<String, Object> laptopCopy = laptopCopies.poll(10, TimeUnit.SECONDS);
+            assertThat(phoneCopy).isNotNull(); assertThat(laptopCopy).isNotNull();
+            Map<?, ?> metadata = (Map<?, ?>) phoneCopy.get("metadata");
+            assertThat(metadata.get("sourceSessionId")).isNotEqualTo("forged-origin");
+            Map<String, Object> ack = Map.of("protocol", 1, "ackType", "clipboard_applied",
+                    "deliveryId", "delivery-integration", "sourceSessionId", metadata.get("sourceSessionId"));
+            sender.send("/app/clipboard-ack", ack); // The origin cannot ACK for a recipient.
+            phone.send("/app/clipboard-ack", ack);
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(deliveries)
+                    .anyMatch(state -> Integer.valueOf(1).equals(state.get("applied")) && Boolean.FALSE.equals(state.get("complete"))));
+            assertThat(deliveries).noneMatch(state -> Boolean.TRUE.equals(state.get("complete")));
+            laptop.send("/app/clipboard-ack", ack);
+            await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(deliveries)
+                    .anyMatch(state -> Integer.valueOf(2).equals(state.get("expected")) && Boolean.TRUE.equals(state.get("complete"))));
+            assertThat(senderCopies).isEmpty();
+        } finally {
+            for (StompSession session : sessions) { if (session.isConnected()) { session.disconnect(); } }
+            client.stop();
+            keys.revokeClient("admin", senderKey.client().getClientId());
+            keys.revokeClient("admin", phoneKey.client().getClientId());
+            keys.revokeClient("admin", laptopKey.client().getClientId());
+        }
+    }
+
+    private StompSession open(WebSocketStompClient client, String key) throws Exception {
+        StompHeaders headers = new StompHeaders();
+        headers.add(ApiClientService.STOMP_API_KEY_HEADER, key);
+        return client.connectAsync("ws://127.0.0.1:" + port + "/clipsocket",
+                new org.springframework.web.socket.WebSocketHttpHeaders(), headers,
+                new StompSessionHandlerAdapter() {}).get(10, TimeUnit.SECONDS);
+    }
+
+    private static StompFrameHandler collector(java.util.concurrent.BlockingQueue<Map<String, Object>> messages) {
+        return new StompFrameHandler() {
+            public Type getPayloadType(StompHeaders headers) { return Map.class; }
+            @SuppressWarnings("unchecked")
+            public void handleFrame(StompHeaders headers, Object payload) { messages.add((Map<String, Object>) payload); }
+        };
+    }
 
     @Test
     @SuppressWarnings("unchecked")

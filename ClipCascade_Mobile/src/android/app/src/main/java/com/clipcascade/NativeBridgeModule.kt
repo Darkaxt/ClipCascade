@@ -52,6 +52,17 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     private val secureRandom = SecureRandom()
     private val serviceTickHandler = Handler(Looper.getMainLooper())
 
+    @ReactMethod
+    fun copyTextToClipboard(text: String, promise: Promise) {
+        try {
+            val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("ClipCascade", text))
+            promise.resolve(true)
+        } catch (error: Exception) {
+            promise.reject("CLIPBOARD_APPLY_FAILED", "Unable to apply text clipboard", error)
+        }
+    }
+
     // React Native frame timers can pause with no resumed Activity. Service
     // polling must continue independently of that UI lifecycle.
     @ReactMethod

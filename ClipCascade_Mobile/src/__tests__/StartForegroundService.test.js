@@ -94,6 +94,7 @@ mockNativeModules = {
   NativeBridgeModule: {
     clearInactiveServiceNotification: jest.fn(),
     getFlagsSync: jest.fn(),
+    copyTextToClipboard: jest.fn(async () => true),
     waitForServiceTick: jest.fn(() => new Promise(resolve => setTimeout(resolve, 1000))),
   },
   ClipboardListener: {
@@ -320,12 +321,22 @@ describe('StartForegroundService notification contract', () => {
     await mockNativeEventListeners.onClipboardChange({
       type: 'text', content: 'second local clipboard', backend: 'legacy',
     });
-    expect(clipboardSends()).toHaveLength(4);
+    expect(clipboardSends()).toHaveLength(5);
+    const deliveryCallback = stompInstance.subscribe.mock.calls.find(
+      ([destination]) => destination === '/user/queue/clipboard-delivery',
+    )[1];
+    const deliveryId = JSON.parse(clipboardSends()[4][0].body).metadata.deliveryId;
+    await deliveryCallback({ body: JSON.stringify({ protocol: 1, kind: 'clipboard_delivery',
+      deliveryId, expected: 1, applied: 1, complete: true }) });
+    await mockNativeEventListeners.onClipboardChange({
+      type: 'text', content: 'second local clipboard', backend: 'legacy',
+    });
+    expect(clipboardSends()).toHaveLength(5);
     expect(await resendClipboardText('row', () => 'x'.repeat(1048577))).toBe('failed');
-    expect(clipboardSends()).toHaveLength(4);
+    expect(clipboardSends()).toHaveLength(5);
     stompInstance.connected = false;
     expect(await resendClipboardText('row', () => 'second local clipboard')).toBe('disconnected');
-    expect(clipboardSends()).toHaveLength(4);
+    expect(clipboardSends()).toHaveLength(5);
     stompInstance.connected = true;
     expect(appendClipboardEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -341,6 +352,29 @@ describe('StartForegroundService notification contract', () => {
         content: 'second local clipboard',
       }),
     );
+
+    const receive = stompInstance.subscribe.mock.calls.find(
+      ([destination]) => destination === '/user/queue/cliptext',
+    )[1];
+    const acknowledgements = () => stompInstance.publish.mock.calls.filter(
+      ([message]) => message.destination === '/app/clipboard-ack',
+    );
+    const inbound = { body: JSON.stringify({ type: 'text', payload: 'remote test',
+      metadata: { deliveryId: 'test-application-id', sourceSessionId: 'windows-session' } }) };
+    mockNativeModules.NativeBridgeModule.copyTextToClipboard.mockRejectedValueOnce(new Error('native write failed'));
+    await receive(inbound);
+    expect(acknowledgements()).toHaveLength(0);
+    await receive(inbound);
+    expect(acknowledgements()).toHaveLength(1);
+    await receive(inbound);
+    expect(acknowledgements()).toHaveLength(2);
+    expect(mockNativeModules.NativeBridgeModule.copyTextToClipboard).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(acknowledgements()[0][0].body)).toEqual({
+      protocol: 1, ackType: 'clipboard_applied', deliveryId: 'test-application-id', sourceSessionId: 'windows-session',
+    });
+    await receive({ body: JSON.stringify({ type: 'files', payload: '{}',
+      metadata: { deliveryId: 'files-not-applied', sourceSessionId: 'windows-session' } }) });
+    expect(acknowledgements()).toHaveLength(2);
 
     mockWsIsRunning = false;
     jest.advanceTimersByTime(1000);

@@ -768,7 +768,8 @@ class P2PManager(WSInterface):
     async def _send(self, payload: str, payload_type: str = "text", force=False):
         try:
             replay_text = payload if payload_type.lower() == "text" else None
-            if self.clipboard_manager.has_clipboard_changed(payload) or force:
+            # Without application ACK support, a fresh P2P copy is unconfirmed.
+            if not self.clipboard_manager.is_remote_clipboard_echo(payload) or force:
                 preview = ActivityLog.preview_payload(payload, payload_type)
                 self.reset_sending_fragment_id()
                 self.reset_receiving_fragments()

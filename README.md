@@ -8,9 +8,26 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android `3.2.0.31`, Windows `3.2.0.32` and server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
+Android, Windows and server `3.2.0.33` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
 
 ### Latest Darkaxt Release
+
+Release `3.2.0.33` adds P2S **clipboard application acknowledgements** across
+Android, Windows and the server. `Sent` is an unconfirmed transport handoff;
+`Delivered` requires every targeted receiving session to acknowledge a successful
+clipboard write. Missing ACKs, zero recipients, older clients and P2P stay
+unconfirmed, so a fresh copy or manual Resend is not blocked as already delivered.
+Local post-apply echo suppression remains separate. File download queues are
+shown as `Available`, not falsely acknowledged as clipboard application.
+
+The Shizuku watcher now uses Android's clipboard timestamp as well as content,
+so copying identical text again creates a new capture event without continually
+resending an unchanged clipboard. Startup does not broadcast old clipboard data.
+Encryption, credentials, icons and existing connection-recovery policy are unchanged.
+Update the server and both clients for application ACKs; legacy clients still sync
+but cannot confirm delivery. Android updates are user-installed.
+
+Download [Android, Windows and server 3.2.0.33](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.33).
 
 Windows-only release `3.2.0.32` coordinates clipboard readers and writers,
 closes the native clipboard even when writing fails, and handles temporary

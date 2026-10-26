@@ -21,7 +21,8 @@ def main():
     archive = CArchiveReader(str(executable))
     pyz = archive.open_embedded_archive("PYZ.pyz")
     modules = ["clipboard.windows_access", "clipboard.clipboard_manager",
-               "clipboard.clipboard_monitor_win", "core.constants"]
+               "clipboard.clipboard_monitor_win", "core.constants",
+               "stomp_ws.stomp_manager", "utils.clipboard_delivery", "p2p.p2p_manager"]
     for name in modules:
         actual = pyz.extract(name)
         source = src.joinpath(*name.split(".")).with_suffix(".py")

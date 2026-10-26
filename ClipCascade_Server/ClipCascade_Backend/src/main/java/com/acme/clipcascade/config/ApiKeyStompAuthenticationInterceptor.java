@@ -46,6 +46,11 @@ public class ApiKeyStompAuthenticationInterceptor implements ChannelInterceptor 
         }
 
         String destination = accessor.getDestination();
+        if (destination != null && destination.contains("clipboard-delivery")
+                && !(StompCommand.SUBSCRIBE.equals(accessor.getCommand())
+                        && "/user/queue/clipboard-delivery".equals(destination))) {
+            throw new AccessDeniedException("Clipboard delivery state is server-issued and session-private");
+        }
         if (StompCommand.SUBSCRIBE.equals(accessor.getCommand()) && destination != null
                 && destination.contains("client-health") && !"/user/queue/client-health".equals(destination)) {
             throw new AccessDeniedException("Client health subscription must use the private user destination");

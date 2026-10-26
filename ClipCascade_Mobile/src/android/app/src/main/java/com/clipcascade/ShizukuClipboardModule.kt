@@ -44,7 +44,8 @@ class ShizukuClipboardModule(
 
     private val listening = AtomicBoolean(false)
     @Volatile private var pollThread: Thread? = null
-    @Volatile private var lastSignature: String = ""
+    private val observations = ClipboardObservationTracker()
+    private data class Snapshot(val event: WritableMap, val timestamp: Long)
     @Volatile private var lastStatus: String = STATUS_DISCONNECTED
     @Volatile private var permissionRequestPending: Boolean = false
 
@@ -136,6 +137,7 @@ class ShizukuClipboardModule(
             readClipboardEvent()
         } catch (e: Throwable) {
             Log.w(TAG, "Shizuku clipboard backend unsupported during startup", e)
+            listening.set(false)
             emitStatusIfChanged(STATUS_UNSUPPORTED)
             val result = buildStatusMap(STATUS_UNSUPPORTED)
             result.putBoolean("started", false)
@@ -143,7 +145,7 @@ class ShizukuClipboardModule(
             return
         }
 
-        lastSignature = buildEventSignature(initialEvent)
+        observations.seed(initialEvent?.let { buildEventSignature(it.event) }, initialEvent?.timestamp ?: 0)
         lastStatus = STATUS_CONNECTED
         pollThread = Thread {
             pollClipboardLoop()
@@ -196,13 +198,9 @@ class ShizukuClipboardModule(
             }
 
             try {
-                val event = readClipboardEvent()
-                if (event != null) {
-                    val signature = buildEventSignature(event)
-                    if (signature != lastSignature) {
-                        lastSignature = signature
-                        sendEventToJS("onClipboardChange", event)
-                    }
+                val snapshot = readClipboardEvent()
+                if (observations.observe(snapshot?.let { buildEventSignature(it.event) }, snapshot?.timestamp ?: 0)) {
+                    sendEventToJS("onClipboardChange", snapshot!!.event)
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "Shizuku clipboard polling failed", e)
@@ -268,11 +266,11 @@ class ShizukuClipboardModule(
         return result
     }
 
-    private fun readClipboardEvent(): WritableMap? {
+    private fun readClipboardEvent(): Snapshot? {
         val rawBinder = SystemServiceHelper.getSystemService(Context.CLIPBOARD_SERVICE)
             ?: throw IllegalStateException("Clipboard service unavailable")
         val clip = invokeGetPrimaryClip(rawBinder) ?: return null
-        return clipDataToEvent(clip)
+        return clipDataToEvent(clip)?.let { Snapshot(it, clip.description.timestamp) }
     }
 
     private fun invokeGetPrimaryClip(rawBinder: IBinder): ClipData? {

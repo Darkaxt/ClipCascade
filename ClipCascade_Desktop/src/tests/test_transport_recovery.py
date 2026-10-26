@@ -33,7 +33,10 @@ class RecoveryTests(unittest.TestCase):
         manager.config.data['cipher_enabled'] = False
         manager.is_connected = True
         manager.client = Mock()
-        manager.clipboard_manager.has_clipboard_changed = Mock(return_value=False)
+        delivery_id = manager.delivery.begin('same text', 'text')
+        manager.delivery.acknowledge({'protocol': 1, 'kind': 'clipboard_delivery',
+                                     'deliveryId': delivery_id, 'expected': 1,
+                                     'applied': 1, 'complete': True})
         manager.send('same text')
         manager.client.send.assert_not_called()
         self.assertTrue(manager.resend_text('same text'))

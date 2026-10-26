@@ -217,6 +217,15 @@ public class ClipCascadeController {
                 messageToSend);
     }
 
+    @MessageMapping("/clipboard-ack")
+    public void acknowledgeClipboard(Principal principal, SimpMessageHeaderAccessor headers,
+            java.util.Map<String, Object> message) {
+        UserPrincipal user = UserPrincipal.fromAuthenticationPrincipal(principal);
+        if (!clipCascadeProperties.isP2pEnabled() && clipboardFanoutService != null && user != null) {
+            clipboardFanoutService.acknowledge(user.getUsername(), headers.getSessionId(), message);
+        }
+    }
+
     @GetMapping("/captcha")
     public void getCaptcha(
             HttpServletResponse response,
