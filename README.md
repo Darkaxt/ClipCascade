@@ -8,9 +8,18 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android `3.2.0.31`, Windows `3.2.0.30` and server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
+Android `3.2.0.31`, Windows `3.2.0.32` and server `3.2.0.29` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
 
 ### Latest Darkaxt Release
+
+Windows-only release `3.2.0.32` coordinates clipboard readers and writers,
+closes the native clipboard even when writing fails, and handles temporary
+OpenClipboard contention for text and images. Writes use a valid owner window;
+failed reads no longer escape the watcher callback. Persistent external locks
+are reported as clipboard busy, with the holder PID when Windows exposes it.
+The existing 60-second connection-notification policy and saved login are unchanged.
+
+Download [Windows 3.2.0.32](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.32).
 
 Android-only release `3.2.0.31` fixes repeated "monitoring inactive" warnings
 when React Native pauses UI-driven timers in the background. The service's

@@ -25,6 +25,7 @@ if PLATFORM == WINDOWS or PLATFORM == MACOS:
 
 if PLATFORM == WINDOWS:
     import win32clipboard
+    from clipboard.windows_access import open_clipboard
     from clipboard import clipboard_monitor_win as clipboard_monitor
 elif PLATFORM == MACOS:
     import pasteboard
@@ -352,7 +353,11 @@ class ClipboardManager:
             self.reset_files_download()
 
             if payload_type == "text":
-                if PLATFORM == WINDOWS or PLATFORM == MACOS:
+                if PLATFORM == WINDOWS:
+                    with open_clipboard(write=True):
+                        win32clipboard.EmptyClipboard()
+                        win32clipboard.SetClipboardText(payload, win32clipboard.CF_UNICODETEXT)
+                elif PLATFORM == MACOS:
                     pyperclip.copy(payload)
                 elif PLATFORM.startswith(LINUX):
                     if XMODE and self.is_x_clipboard_owner:
@@ -375,11 +380,10 @@ class ClipboardManager:
                         payload.convert("RGB").save(output, format="BMP")
                         bmp_data = output.getvalue()[14:]  # Skip BMP header (14 bytes)
 
-                    win32clipboard.OpenClipboard()
-                    win32clipboard.EmptyClipboard()
-                    clipboard_monitor.enable_block_image_once()  # Block image copy to prevent deadlock
-                    win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
-                    win32clipboard.CloseClipboard()
+                    with open_clipboard(write=True):
+                        win32clipboard.EmptyClipboard()
+                        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
+                        clipboard_monitor.enable_block_image_once()
                 elif PLATFORM == MACOS:
                     # Save the image to a binary buffer in TIFF format
                     with io.BytesIO() as output:

@@ -36,6 +36,19 @@ from clipboard.clipboard_manager import ClipboardManager  # noqa: E402
 
 
 class ClipboardManagerImageEncodingTest(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == "win32", "Windows clipboard integration")
+    def test_failed_image_write_closes_clipboard_without_arming_suppression(self):
+        manager = ClipboardManager(types.SimpleNamespace(data={}))
+        with patch("clipboard.clipboard_manager.win32clipboard") as clipboard, patch(
+            "clipboard.clipboard_manager.clipboard_monitor.enable_block_image_once"
+        ) as suppress:
+            clipboard.SetClipboardData.side_effect = RuntimeError("image write failed")
+            with patch("clipboard.windows_access.win32clipboard", clipboard):
+                with self.assertRaisesRegex(RuntimeError, "image write failed"):
+                    manager.paste(Image.new("RGB", (2, 2)), "image")
+            clipboard.CloseClipboard.assert_called_once()
+            suppress.assert_not_called()
+
     def test_windows_dib_image_payload_is_normalized_to_png(self):
         original = Image.new("RGB", (8, 6), (10, 80, 180))
         dib_buffer = io.BytesIO()
