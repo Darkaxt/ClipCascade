@@ -19,6 +19,9 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
 import android.util.Log
 import android.net.Uri
+import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 
 class MainActivity : ReactActivity() {
@@ -42,6 +45,15 @@ class MainActivity : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 draws edge-to-edge; reserve navigation/cutout space for controls.
+        // Status-bar space is already reserved by the React Native root.
+        val content = findViewById<View>(android.R.id.content)
+        ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+            val safe = insets.getInsets(WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(safe.left, 0, safe.right, safe.bottom)
+            insets
+        }
+        ViewCompat.requestApplyInsets(content)
         intent?.let { handleIntent(it) }
 
         try{

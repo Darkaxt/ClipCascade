@@ -8,6 +8,8 @@ a = Analysis(
     datas=[
         ('../../logo/window-icon.ico', 'logo'),
         ('../../logo/window-icon.png', 'logo'),
+        ('../../logo/ui/*.png', 'logo/ui'),
+        ('../../logo/ui/LUCIDE-LICENSE', 'logo/ui'),
     ],
     hiddenimports=['plyer.platforms.win.notification'],
     hookspath=[],

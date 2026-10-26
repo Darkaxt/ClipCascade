@@ -1,0 +1,2 @@
+# Native captures are local QA evidence and can include desktop shadow margins.
+/screenshots/*native*.png

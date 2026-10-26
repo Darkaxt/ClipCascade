@@ -1,0 +1,38 @@
+/* Build offline-only proposals from existing artwork and installed Lucide nodes. */
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const root=__dirname;
+const repo=path.resolve(root,'../..');
+const lucide=path.join(repo,'ClipCascade_Mobile/src/node_modules/lucide-react-native/dist/cjs/icons');
+const names=['history','activity','settings-2','user-round','radio','network','lock-keyhole','search','trash-2','check','check-check','clock-3','circle-alert','copy','send','refresh-cw','pause','play','shield-check','save','log-in','signal','wifi','battery-full','minus','square','x','arrow-up-right','arrow-down-left','text-cursor-input','image','external-link'];
+const icons={};
+for(const name of names){
+  const sandbox={module:{exports:{}},require:()=>((label,nodes)=>nodes)};
+  vm.runInNewContext(fs.readFileSync(path.join(lucide,name+'.js'),'utf8'),sandbox,{filename:name+'.js'});
+  icons[name]=sandbox.module.exports.map(([tag,attrs])=>`<${tag} ${Object.entries(attrs).filter(([key])=>key!=='key').map(([key,value])=>`${key}="${String(value).replaceAll('"','&quot;')}"`).join(' ')}/>`).join('');
+}
+const css=fs.readFileSync(path.join(root,'prototype.css'),'utf8');
+const js=fs.readFileSync(path.join(root,'prototype.js'),'utf8').replace('__ARTWORK__',JSON.stringify('data:image/png;base64,'+fs.readFileSync(path.join(repo,'logo/window-icon.png')).toString('base64'))).replace('__ICONS__',JSON.stringify(icons));
+const icon=name=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
+const options=[['A','Control Room','History and diagnostics, side by side.',''],['B','Clear Desk','A quieter, text-first workspace.','light'],['C','Quick Switch','Compact, search-first clipboard access.','quick']];
+const phone=(theme,view)=>`<div class="app phone ${theme}" data-platform="android" data-view="${view}"></div>`;
+const head=(title,body)=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} | ClipCascade UI proposals</title><style>${css}</style></head>${body}</html>`;
+for(const [letter,name,subtitle,theme] of options){
+  const nav=options.map(([id,label])=>`<a href="dir-${id.toLowerCase()}.html" ${id===letter?'aria-current="page"':''}>${id}</a>`).join('');
+  const page=`<body data-direction="${letter}"><main class="board"><header class="board-header"><div class="board-title"><span class="direction-letter">${letter}</span><div><h1>${name}</h1><p>${subtitle}</p></div></div><nav class="board-nav" aria-label="Design directions"><a href="index.html">Overview</a>${nav}</nav></header><div class="preview-note">${icon('shield-check')}Interactive design proposal. Sample content, no live device data.</div><div class="pair"><section><div class="frame-label"><strong>Windows</strong><span>History workspace</span></div><div class="app win ${theme}" data-platform="windows"></div></section><section><div class="frame-label"><strong>Android</strong><span>History</span></div>${phone(theme,'history')}</section></div><section class="below"><div class="below-heading"><h2>The same system, beyond history</h2><p>Separate capture health from network connection. Keep settings and sign-in accessible without crowding everyday clipboard use.</p></div><div class="screen-strip">${[['health','Connection health'],['settings','Settings'],['login','Sign-in']].map(([view,label])=>`<section><div class="frame-label"><strong>Android</strong><span>${label}</span></div>${phone(theme,view)}</section>`).join('')}</div></section><footer class="board-footer"><p>Existing artwork retained. Text-only Copy and Resend.<br>No service, credential, encryption or tray-icon changes.</p><p class="board-feedback" role="status" aria-live="polite">Actions are simulated inside this preview.</p></footer></main><script>${js}</script></body>`;
+  fs.writeFileSync(path.join(root,`dir-${letter.toLowerCase()}.html`),head(name,page));
+}
+const miniRows=`<div class="mini-row"><span>Meeting moved to 15:30.</span><span>Delivered</span></div><div class="mini-row"><span>example.com/project-notes</span><span>Applied</span></div><div class="mini-row"><span>C:\\Projects\\ClipCascade</span><span>Sent</span></div>`;
+const miniRail=`<div class="mini-rail">${icon('history')}${icon('activity')}${icon('settings-2')}</div>`;
+const candidates=[
+  ['A','Control Room','Full proposal',`${miniRail}<div class="mini-main"><h3>Clipboard history</h3><div class="mini-status">Capture listening</div>${miniRows}</div><div class="mini-preview">Meeting moved<br>to 15:30.<br><br><small>2 / 2 application ACKs</small></div>`,''],
+  ['B','Clear Desk','Full proposal',`<div class="mini-main"><div class="mini-top">ClipCascade &nbsp; History &nbsp; Health</div><h3>Clipboard history</h3><div class="mini-expanded">Meeting moved to 15:30.<br><small>Delivered &nbsp; Copy &nbsp; Resend</small></div>${miniRows}</div>`,'light-thumb'],
+  ['C','Quick Switch','Full proposal',`<div class="mini-main"><h3>Search clipboard</h3>${miniRows}</div><div class="mini-preview">Meeting moved<br>to 15:30.<br><br>Copy &nbsp; Resend</div>`,'palette-thumb'],
+  ['D','Service Console','Alternate',`${miniRail}<div class="mini-main"><h3>Monitoring</h3><div class="mini-console">Capture: Listening<br>Connection: Connected</div>${miniRows}</div>`,''],
+  ['E','Native Notebook','Alternate',`<div class="mini-main"><h3>Today</h3><div class="mini-status">21:17</div>${miniRows}<div class="mini-status" style="margin-top:15px">Earlier</div><div class="mini-row">Remember the USB cable.</div></div>`,'light-thumb native-thumb'],
+  ['F','Signal Index','Alternate',`<div class="mini-signal">ClipCascade<br><br>History<br><br>Health</div><div class="mini-main"><h3>Recent clipboard</h3><div class="mini-index"><div>21:17<br>Meeting moved<br>Delivered</div><div>21:12<br>Project notes<br>Applied</div><div>21:08<br>Project folder<br>Sent</div><div>20:44<br>USB cable<br>Not applied</div></div></div>`,'light-thumb']
+];
+fs.writeFileSync(path.join(root,'thumbs.html'),head('Six candidates',`<body><main class="gallery"><h1>Six ways to organize ClipCascade</h1><p>Three full proposals, plus three alternate structures. All use the same harmless sample content.</p><div class="thumb-grid">${candidates.map(([id,name,label,body,theme])=>`<section class="thumbnail"><div class="thumb-label"><strong>${id}. ${name}</strong><span>${label}</span></div><div class="thumb-screen ${theme}">${body}</div></section>`).join('')}</div><div class="gallery-links"><a href="index.html">Open full proposals</a></div></main></body>`));
+fs.writeFileSync(path.join(root,'index.html'),head('Design directions',`<body><main class="gallery"><h1>ClipCascade, redesigned</h1><p>Android and Windows proposals. Open a direction to try selection, Copy and Resend previews, history filters, connection health, settings and sign-in. No live clipboard or service is accessed.</p><div class="gallery-grid">${options.map(([id,name,subtitle])=>`<a class="direction-preview" href="dir-${id.toLowerCase()}.html"><img src="screenshots/dir-${id.toLowerCase()}-desktop.png" alt="${name}: Windows and Android UI proposal"><div><h2>${id}. ${name}</h2><p>${subtitle}</p><span class="choose-link">Open interactive proposal ${icon('external-link')}</span></div></a>`).join('')}</div><div class="gallery-links"><a href="thumbs.html">See all six candidates</a><a href="directions.md">Design rationale</a></div></main></body>`));
+console.log(JSON.stringify({ok:true,outputs:['index.html','thumbs.html','dir-a.html','dir-b.html','dir-c.html'],iconLibrary:'lucide-react-native 1.16.0',productionChanges:false},null,2));

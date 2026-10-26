@@ -1,6 +1,7 @@
 import math
 import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -363,6 +364,10 @@ class TaskbarPanel:
                     copy_text_locally=self.copy_text_locally,
                     resend_text=getattr(self.ws_interface, "resend_text", None),
                     is_connected=lambda: self.ws_interface.is_resend_available(),
+                    health_snapshot=self._activity_health,
+                    on_reconnect=lambda: threading.Thread(target=self.ws_interface.manual_reconnect, daemon=True).start(),
+                    on_account=lambda: self._on_logoff(None, None),
+                    on_logs=lambda: self._open_logs(None, None),
                 )
             except Exception as e:
                 mark_inactive()
@@ -373,6 +378,23 @@ class TaskbarPanel:
 
         if not self._schedule_tk_task(open_window):
             mark_inactive()
+
+    def _activity_health(self):
+        manager = getattr(self.ws_interface, 'clipboard_manager', None)
+        module = sys.modules.get(type(manager).__module__) if manager else None
+        monitor = getattr(module, 'clipboard_monitor', None)
+        thread = getattr(monitor, '_clipboard_thread', None)
+        capture = 'Not reported'
+        if PLATFORM == WINDOWS:
+            hwnd = getattr(monitor, '_hwnd', None)
+            capture = 'Watcher running' if (thread and thread.is_alive() and hwnd
+                      and monitor.win32gui.IsWindow(hwnd) and getattr(monitor, '_callback_update', None)) else 'Not active'
+        data = self.config.data if self.config else {}
+        return {key: data.get(key) for key in ('server_url', 'cipher_enabled', 'enable_image_sharing', 'enable_file_sharing', 'notification')} | {
+            'connected': bool(self.ws_interface and self.ws_interface.is_resend_available()),
+            'capture': capture,
+            'authentication': 'API key configured' if data.get('api_key') else 'Account sign-in',
+        }
 
     def enable_files_download(self, files):
         self.is_file_download_enabled = True

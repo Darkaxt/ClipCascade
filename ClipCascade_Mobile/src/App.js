@@ -23,14 +23,6 @@ import notifee from '@notifee/react-native';
 import { pbkdf2 } from '@react-native-module/pbkdf2';
 import { Buffer } from 'buffer';
 import { pickDirectory, isCancel } from '@react-native-documents/picker';
-import {
-  Download,
-  LogOut,
-  Play,
-  RotateCw,
-  Settings as SettingsIcon,
-  Square,
-} from 'lucide-react-native';
 import { sha3_512 } from 'js-sha3';
 import { DOMParser } from 'react-native-html-parser';
 
@@ -45,8 +37,13 @@ import {
   clearRejectedApiAuth,
   hasApiKey,
 } from './AuthConfig';
-import ClipboardActivityLog from './ClipboardActivityLog';
-import { clearClipboardEvents } from './ClipboardEventLog';
+import ConnectedWorkspace from './ConnectedWorkspace';
+import { UI_COLORS as C } from './UiPresentation';
+import {
+  appendClipboardEvent,
+  clearClipboardEvents,
+} from './ClipboardEventLog';
+import { registerClipboardResender } from './ClipboardResend';
 import StartForegroundService from './StartForegroundService';
 import {
   getStartupServiceState,
@@ -54,16 +51,10 @@ import {
   shouldAutoRecoverForegroundService,
   shouldPersistStoppedStateAfterSessionValidation,
 } from './ServiceHealth';
-import {
-  LOGIN_EXTRA_CONFIG_KEYS,
-} from './SettingsConfig';
+import { LOGIN_EXTRA_CONFIG_KEYS } from './SettingsConfig';
 import SettingsPage from './SettingsPage';
 import { syncEncryptionKeyToBase64 } from './SyncEncryptionKey';
 import { enrollClient } from './ClientEnrollment';
-import {
-  getConnectedHeaderActions,
-  getConnectedServiceActions,
-} from './ServiceControls';
 import { shouldShowNewVersion } from './VersionCheck';
 import { getInstalledAppVersion } from './AppVersion';
 import { shouldApplyPolledStatusMessage } from './UiStatusMessage';
@@ -257,10 +248,58 @@ export default function App() {
   const [initError, setInItError] = useState([false, '']);
   useEffect(() => {
     clearClipboardEvents();
+    let disposePreview;
 
     // initialize
     const init = async () => {
       try {
+        // The native hook is disabled in Release. Preview does not persist data,
+        // start a service, contact a server or change the device clipboard.
+        const preview = NativeBridgeModule.getUiPreviewMode?.();
+        if (['history', 'health', 'settings', 'login'].includes(preview)) {
+          setUiPreviewMode(preview);
+          setData(current => ({
+            ...current,
+            server_url: 'https://clipboard.example',
+            username: 'sample-user',
+            cipher_enabled: 'true',
+          }));
+          setWsIsRunning('true');
+          setCaptureState({ backend: 'shizuku', shizukuStatus: 'connected' });
+          appendClipboardEvent({
+            direction: 'inbound',
+            type: 'text',
+            status: 'error',
+            content: 'Remember to bring the USB cable.',
+            metadata: { statusDetail: 'Clipboard busy. Item was not applied.' },
+          });
+          appendClipboardEvent({
+            direction: 'outbound',
+            type: 'text',
+            status: 'sent',
+            content: 'C:\\Projects\\ClipCascade\\notes',
+            metadata: { statusDetail: 'Awaiting clipboard application ACKs' },
+          });
+          appendClipboardEvent({
+            direction: 'outbound',
+            type: 'text',
+            status: 'delivered',
+            content: 'Meeting moved to 15:30.\nRoom 4, second floor.',
+            metadata: {
+              statusDetail:
+                'All targeted recipients acknowledged clipboard application',
+            },
+          });
+          disposePreview = registerClipboardResender({
+            isConnected: () => true,
+            send: async () => false,
+          });
+          setShowSettingsPage(preview === 'settings');
+          setEnableWSPage(preview !== 'login');
+          setEnableLoginPage(preview === 'login');
+          setEnableLoadingPage(false);
+          return;
+        }
         // enable websocket button
         await setDataInAsyncStorage('enableWSButton', 'true');
 
@@ -377,7 +416,11 @@ export default function App() {
             throw new Error('Network response was not ok');
           }
           const data = await response.json();
-          if (data && appVersion && shouldShowNewVersion(appVersion, data.android)) {
+          if (
+            data &&
+            appVersion &&
+            shouldShowNewVersion(appVersion, data.android)
+          ) {
             setNewVersionAvailable([true, data.android]);
           }
         } catch (e) {
@@ -410,6 +453,7 @@ export default function App() {
 
     // cleanup
     return () => {
+      disposePreview?.();
       isMountedRef.current = false;
       const clearWSStatusMessage = async () => {
         try {
@@ -424,8 +468,8 @@ export default function App() {
       };
       clearWSStatusMessage();
     };
-  // The app intentionally runs this bootstrapping flow once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The app intentionally runs this bootstrapping flow once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Function to convert a server URL to a WebSocket URL
@@ -598,10 +642,13 @@ export default function App() {
     } else if (data_s.server_mode === 'P2S') {
       data_s.stun_url = '';
 
-      const maxSizeResponse = await fetchTimeout(data_s.server_url + MAXSIZE_URL, {
-        method: 'GET',
-        headers: authHeaders,
-      });
+      const maxSizeResponse = await fetchTimeout(
+        data_s.server_url + MAXSIZE_URL,
+        {
+          method: 'GET',
+          headers: authHeaders,
+        },
+      );
       if (!maxSizeResponse.ok) {
         return [
           false,
@@ -729,11 +776,7 @@ export default function App() {
         const configResult = await configureServerConnection(data_s);
         data_s = configResult[2];
         if (!configResult[0]) {
-          return [
-            false,
-            'Login Successful but ' + configResult[1],
-            data_s,
-          ];
+          return [false, 'Login Successful but ' + configResult[1], data_s];
         }
 
         const encryptionResult = await configureEncryptionKey(
@@ -853,6 +896,8 @@ export default function App() {
       'p2pStatusMessage',
       'filesAvailableToDownload',
       'foreground_service_stopped_running',
+      'clipboard_capture_backend',
+      'shizuku_status',
     ];
 
     while (isMountedRef.current) {
@@ -873,7 +918,20 @@ export default function App() {
         await restartForegroundService();
       }
 
+      if (latest.wsIsRunning === 'true' || latest.wsIsRunning === 'false') {
+        setWsIsRunning(latest.wsIsRunning);
+      }
+
       if (latest.wsIsRunning === 'true') {
+        setCaptureState(current =>
+          current.backend === latest.clipboard_capture_backend &&
+          current.shizukuStatus === latest.shizuku_status
+            ? current
+            : {
+                backend: latest.clipboard_capture_backend,
+                shizukuStatus: latest.shizuku_status,
+              },
+        );
         // Websocket status message
         const msg1 = latest.wsStatusMessage;
         if (shouldApplyPolledStatusMessage(msg1)) {
@@ -1129,11 +1187,14 @@ export default function App() {
   // State to manage websocket page visibility
   const [enableWSPage, setEnableWSPage] = useState(false);
   const [showSettingsPage, setShowSettingsPage] = useState(false);
+  const [uiPreviewMode, setUiPreviewMode] = useState('');
 
   // State to manage websocket status
   const [wsIsRunning, setWsIsRunning] = useState('false');
-  const connectedHeaderActions = getConnectedHeaderActions();
-  const connectedServiceActions = getConnectedServiceActions(wsIsRunning);
+  const [captureState, setCaptureState] = useState({
+    backend: null,
+    shizukuStatus: null,
+  });
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
@@ -1275,9 +1336,10 @@ export default function App() {
     );
   }
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-    >
+    <SafeAreaView style={styles.safeArea}>
+      {uiPreviewMode ? (
+        <Text style={styles.previewLabel}>UI preview - sample data</Text>
+      ) : null}
       {/* Loading Page */}
       {enableLoadingPage && (
         <View style={styles.loadingContainer}>
@@ -1291,6 +1353,10 @@ export default function App() {
       {/* Login Page */}
       {enableLoginPage && (
         <ScrollView contentContainerStyle={styles.container}>
+          <Image
+            source={require('./assets/brand.png')}
+            style={{ width: 58, height: 58, marginBottom: 18 }}
+          />
           <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Username:</Text>
@@ -1344,7 +1410,7 @@ export default function App() {
               handleLogin(null, null);
             }}
           >
-            <Text style={styles.loginButtonText}>Login</Text>
+            <Text style={styles.loginButtonText}>Sign in</Text>
           </TouchableOpacity>
 
           {/* Toggle Extra Config as Text */}
@@ -1402,142 +1468,26 @@ export default function App() {
         />
       )}
       {enableWSPage && !showSettingsPage && (
-        <ScrollView contentContainerStyle={styles.connectedContainer}>
-          <View style={styles.websocketHeader}>
-            <View style={styles.headerIconSlot}>
-              {connectedHeaderActions.showLogout && (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel="Logout"
-                  style={styles.headerIconButton}
-                  onPress={logout}
-                >
-                  <LogOut color="white" size={22} />
-                </TouchableOpacity>
-              )}
-            </View>
-            <Text style={[styles.appTitle, styles.websocketTitle]}>
-              {APP_NAME}
-            </Text>
-            <View style={styles.headerIconSlot}>
-              {connectedHeaderActions.showSettings && (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  accessibilityLabel="Open settings"
-                  style={styles.headerIconButton}
-                  onPress={() => setShowSettingsPage(true)}
-                >
-                  <SettingsIcon color="white" size={24} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-          <View style={styles.connectedContent}>
-            <View style={styles.serviceActionsColumn}>
-              <TouchableOpacity
-                style={[
-                  styles.connectedActionButton,
-                  wsIsRunning === 'true'
-                    ? styles.stopButton
-                    : styles.startButton,
-                ]}
-                onPress={foregroundService}
-              >
-                {wsIsRunning === 'true' ? (
-                  <Square color="white" size={18} />
-                ) : (
-                  <Play color="white" size={18} />
-                )}
-                <Text style={styles.connectedActionButtonText}>
-                  {connectedServiceActions.primaryLabel}
-                </Text>
-              </TouchableOpacity>
-              {connectedServiceActions.showRestart && (
-                <TouchableOpacity
-                  style={[styles.connectedActionButton, styles.restartButton]}
-                  onPress={restartForegroundService}
-                >
-                  <RotateCw color="white" size={18} />
-                  <Text style={styles.connectedActionButtonText}>
-                    Restart Service
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {/* Display websocket status message */}
-            {wsPageMessage !== '' && (
-              <Text style={styles.message}>{wsPageMessage}</Text>
-            )}
-            {/* Display p2p status message */}
-            {wsPageP2PMessage !== '' && (
-              <Text style={styles.message}>{wsPageP2PMessage}</Text>
-            )}
-            {/* File download button */}
-            {enableFilesDownloadButton &&
-              enableFilesDownloadButton === true && (
-                <TouchableOpacity
-                  style={[styles.connectedActionButton, styles.downloadButton]}
-                  onPress={downloadFiles}
-                >
-                  <Download color="white" size={18} />
-                  <Text style={styles.connectedActionButtonText}>
-                    Download File(s)
-                  </Text>
-                </TouchableOpacity>
-              )}
-            {/* new version display message */}
-            {newVersionAvailable[0] && (
-              <TouchableOpacity
-                onPress={() => Linking.openURL(RELEASE_URL)}
-                style={{ marginTop: 10 }}
-              >
-                <Text
-                  style={[
-                    styles.message,
-                    {
-                      color: '#008080',
-                      fontWeight: 'bold',
-                      textDecorationLine: 'underline',
-                    },
-                  ]}
-                >
-                  New version available! 🚀 Click here to update ({appVersion}{' '}
-                  ➞ {newVersionAvailable[1]})
-                </Text>
-              </TouchableOpacity>
-            )}
-            <ClipboardActivityLog />
-          </View>
-          {/* Footer */}
-          <View style={styles.footerContainer}>
-            <TouchableOpacity
-              style={styles.spacing}
-              onPress={() => Linking.openURL(GITHUB_URL)}
-            >
-              <Text style={styles.footerText}>GITHUB</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.spacing}
-              onPress={() => Linking.openURL(HELP_URL)}
-            >
-              <Text style={styles.footerText}>HELP</Text>
-            </TouchableOpacity>
-            {donateUrl && (
-              <TouchableOpacity
-                style={styles.spacing}
-                onPress={() => Linking.openURL(donateUrl)}
-              >
-                <Text style={styles.footerText}>DONATE</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={styles.spacing}
-              onPress={() => Linking.openURL(data.server_url)}
-            >
-              <Text style={styles.footerText}>HOMEPAGE</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
+        <ConnectedWorkspace
+          initialView={uiPreviewMode === 'health' ? 'health' : 'history'}
+          running={wsIsRunning === 'true'}
+          data={data}
+          captureState={captureState}
+          message={wsPageMessage}
+          peerMessage={wsPageP2PMessage}
+          onSettings={() => setShowSettingsPage(true)}
+          onToggleService={foregroundService}
+          onRestart={restartForegroundService}
+          onLogout={logout}
+          filesAvailable={enableFilesDownloadButton}
+          onDownload={downloadFiles}
+          updateVersion={newVersionAvailable[0] ? newVersionAvailable[1] : null}
+          onUpdate={() => Linking.openURL(RELEASE_URL)}
+          appVersion={appVersion}
+          helpUrl={HELP_URL}
+          githubUrl={GITHUB_URL}
+          donateUrl={donateUrl}
+        />
       )}
     </SafeAreaView>
   );
@@ -1545,13 +1495,20 @@ export default function App() {
 
 // view styles
 const styles = StyleSheet.create({
+  previewLabel: {
+    color: C.pending,
+    fontSize: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 5,
+  },
   safeArea: {
-    backgroundColor: '#303030',
+    backgroundColor: C.background,
     flex: 1,
     paddingTop: StatusBar.currentHeight,
   },
   container: {
     padding: 20,
+    paddingTop: 28,
   },
   connectedContainer: {
     backgroundColor: '#303030',
@@ -1563,10 +1520,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   appTitle: {
-    color: '#f4f4f5',
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    color: C.text,
+    fontSize: 26,
+    fontWeight: '600',
+    textAlign: 'left',
     paddingBottom: 20,
   },
   websocketHeader: {
@@ -1671,26 +1628,31 @@ const styles = StyleSheet.create({
   loadingText: {
     marginBottom: 10,
     fontSize: 16,
-    color: '#555',
+    color: C.muted,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    marginBottom: 18,
   },
   label: {
-    flex: 1,
+    color: C.text,
+    marginBottom: 7,
     fontSize: 16,
   },
   input: {
-    flex: 2,
+    fontSize: 16,
     borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 8,
+    borderColor: C.line,
+    backgroundColor: C.field,
+    color: C.text,
+    padding: 12,
+    minHeight: 48,
     borderRadius: 5,
   },
   loginButton: {
-    backgroundColor: '#007BFF',
+    backgroundColor: C.accent,
+    minHeight: 48,
     padding: 10,
     borderRadius: 5,
     alignItems: 'center',
@@ -1707,18 +1669,18 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   loginButtonText: {
-    color: 'white',
+    color: C.buttonInk,
     fontSize: 16,
   },
   linkText: {
-    color: '#5081ab',
+    color: C.accent,
     textDecorationLine: 'underline',
     textAlign: 'center',
     marginVertical: 10,
     fontSize: 18,
   },
   message: {
-    color: '#5081ab',
+    color: C.muted,
     textAlign: 'center',
     marginVertical: 12,
     fontSize: 16,
@@ -1765,10 +1727,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 16,
-    color: '#5081ab',
+    color: C.muted,
     marginTop: 5,
   },
   spacing: {
     marginHorizontal: 12,
+    minHeight: 44,
+    justifyContent: 'center',
   },
 });

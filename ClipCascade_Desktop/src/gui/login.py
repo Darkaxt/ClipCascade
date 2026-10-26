@@ -9,6 +9,7 @@ from utils.window_manager import center_window
 from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 from core.config import Config
 from gui.info import CustomDialog
+from gui.theme import COLORS, Icons, apply_theme
 from core.constants import *
 
 
@@ -42,9 +43,9 @@ class HoverTooltip:
             justify=tk.LEFT,
             relief=tk.SOLID,
             borderwidth=1,
-            background="#ffffe0",
-            foreground="#202020",
-            font=("Helvetica", 10),
+            background=COLORS['raised'],
+            foreground=COLORS['text'],
+            font=("Segoe UI", 10),
             wraplength=self.wraplength,
             padx=8,
             pady=6,
@@ -88,12 +89,8 @@ class LoginForm(tk.Tk):
         self.focus_force()
 
         # Configure styles
-        style = ttk.Style(self)
-        # Use default theme (may vary by OS); consider 'clam', 'alt', or 'default'
-        style.configure("TLabel", font=("Helvetica", 13), padding=5)
-        style.configure("TEntry", font=("Helvetica", 13), padding=5)
-        style.configure("TButton", font=("Helvetica", 13), padding=5)
-        style.configure("TCheckbutton", font=("Helvetica", 13), padding=5)
+        style = apply_theme(self)
+        self.icons = Icons(self)
 
         # Main frame with padding
         main_frame = ttk.Frame(self, padding=20)
@@ -102,8 +99,10 @@ class LoginForm(tk.Tk):
         # Title Label
         title_label = ttk.Label(
             main_frame,
-            text="Please Log In",
-            font=("Helvetica", 16, "bold"),
+            text="ClipCascade",
+            image=self.icons.brand(42),
+            compound='left',
+            font=("Segoe UI", 21, "bold"),
             takefocus=False,
         )
         title_label.pack(pady=(0, 10))
@@ -136,7 +135,7 @@ class LoginForm(tk.Tk):
         self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.eye_icon = ttk.Label(
-            self.password_frame, text="🙈", cursor="hand2", takefocus=False
+            self.password_frame, image=self.icons.get('eye'), cursor="hand2", takefocus=False
         )
         self.eye_icon.pack(side=tk.RIGHT, padx=(5, 0))
         self.eye_icon.bind("<Button-1>", self._toggle_password)
@@ -208,18 +207,19 @@ class LoginForm(tk.Tk):
         button_frame.pack(pady=(10, 0))
 
         # Login Button
-        self.login_button = ttk.Button(button_frame, text="Login", command=self.on_login)
+        self.login_button = ttk.Button(button_frame, text="Sign in", command=self.on_login, style='Accent.TButton')
         self.login_button.pack()
 
         # Extra Configurations Toggle Label
         # macOS: show advanced fields by default
         self.show_extra = PLATFORM == MACOS
-        self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
-        self.toggle_hover_color = "#005a9e"  # slightly darker for hover feedback
+        self.toggle_normal_color = COLORS['accent']
+        self.toggle_hover_color = '#a4e8f0'
         self.toggle_label = tk.Label(
             main_frame,
             text="Hide Extra Config" if PLATFORM == MACOS else "Enable Extra Config",
             fg=self.toggle_normal_color,
+            bg=COLORS['background'],
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
             takefocus=False,
@@ -247,7 +247,7 @@ class LoginForm(tk.Tk):
         self.extra_canvas = tk.Canvas(
             self.extra_frame_container,
             borderwidth=0,
-            background="#f0f0f0",
+            background=COLORS['background'],
             takefocus=False,
         )
         self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -539,10 +539,10 @@ class LoginForm(tk.Tk):
     def _toggle_password(self, event=None):
         if self.password_entry.cget("show") == "*":
             self.password_entry.config(show="")
-            self.eye_icon.config(text="🐵")
+            self.eye_icon.config(image=self.icons.get('eye-off'))
         else:
             self.password_entry.config(show="*")
-            self.eye_icon.config(text="🙈")
+            self.eye_icon.config(image=self.icons.get('eye'))
 
     def _toggle_extra_config(self, event=None):
         """Toggle the visibility of the extra configuration fields."""

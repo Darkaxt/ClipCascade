@@ -1,12 +1,12 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import scrolledtext
 import gc
 import time
 
 from utils.window_manager import center_window
 from utils.window_icon import apply_clipboard_window_icon, set_windows_app_user_model_id
 from core.constants import *
+from gui.theme import COLORS, Icons, apply_theme
 
 
 class CustomDialog(tk.Tk):
@@ -18,13 +18,8 @@ class CustomDialog(tk.Tk):
         self.timeout = timeout
         self.after_id = None
 
-        self.style = ttk.Style(self)
-        self.style.configure("TFrame", background="#f2f2f2")
-        self.style.configure(
-            "TLabel", background="#f2f2f2", foreground="#333333", font=("Arial", 11)
-        )
-        self.style.configure("Header.TLabel", font=("Arial", 14, "bold"))
-        self.style.configure("TButton", font=("Arial", 11))
+        self.style = apply_theme(self)
+        self.icons = Icons(self)
 
         self._configure_window()
         self._show_dialog()
@@ -61,12 +56,12 @@ class CustomDialog(tk.Tk):
     def _show_dialog(self):
         """Display the appropriate dialog based on the message type."""
         type_config = {
-            "success": ("Success", "green", "✔"),
-            "error": ("Error", "red", "✖"),
-            "warning": ("Warning", "orange", "⚠"),
-            "info": ("Information", "blue", "ℹ"),
+            "success": ("Success", COLORS['good'], 'check'),
+            "error": ("Error", COLORS['error'], 'circle-alert'),
+            "warning": ("Warning", COLORS['pending'], 'circle-alert'),
+            "info": ("Information", COLORS['accent'], 'info'),
         }
-        title, color, symbol = type_config.get(self.msg_type, ("Message", "black", "•"))
+        title, color, symbol = type_config.get(self.msg_type, ("Message", COLORS['text'], 'info'))
 
         # Create a main frame
         main_frame = ttk.Frame(self, padding="20 20 20 20")
@@ -77,7 +72,7 @@ class CustomDialog(tk.Tk):
         title_frame.pack(pady=(0, 10), fill="x")
 
         symbol_label = ttk.Label(
-            title_frame, text=symbol, font=("Arial", 18, "bold"), foreground=color
+            title_frame, image=self.icons.get(symbol), foreground=color
         )
         symbol_label.pack(side="left", padx=(0, 10))
 
@@ -89,9 +84,15 @@ class CustomDialog(tk.Tk):
         message_frame.pack(fill="both", expand=True, pady=10)
 
         # ScrolledText widget for the message
-        self.text_widget = scrolledtext.ScrolledText(
-            message_frame, wrap="word", font=("Arial", 11), width=70, height=8
+        scroll = ttk.Scrollbar(message_frame, orient='vertical')
+        scroll.pack(side='right', fill='y')
+        self.text_widget = tk.Text(
+            message_frame, wrap="word", font=("Segoe UI", 11), width=70, height=8,
+            background=COLORS['field'], foreground=COLORS['text'], relief='flat',
+            borderwidth=0, padx=12, pady=12,
+            yscrollcommand=scroll.set,
         )
+        scroll.configure(command=self.text_widget.yview)
         self.text_widget.pack(fill="both", expand=True)
 
         # Insert the message and disable editing
@@ -100,7 +101,7 @@ class CustomDialog(tk.Tk):
 
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(pady=(10, 0))
+        button_frame.pack(side='bottom', fill='x', pady=(10, 0), before=message_frame)
 
         ok_button = ttk.Button(button_frame, text="OK", command=self.close, width=10)
         ok_button.pack()

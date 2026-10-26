@@ -21,6 +21,7 @@ import {
 } from 'lucide-react-native';
 
 import { SETTINGS_CATEGORIES } from './SettingsConfig';
+import { UI_COLORS as C } from './UiPresentation';
 
 const CATEGORY_ICONS = {
   sync: Share2,
@@ -29,7 +30,7 @@ const CATEGORY_ICONS = {
   help: CircleHelp,
 };
 
-const ICON_COLOR = '#cfd2d6';
+const ICON_COLOR = C.muted;
 
 export default function SettingsPage({
   data,
@@ -197,7 +198,7 @@ export default function SettingsPage({
         <Text style={styles.bodyText}>
           2. Tap 'Share', select 'ClipCascade'.
         </Text>
-        <Text style={styles.bodyText}>   (or)</Text>
+        <Text style={styles.bodyText}> (or)</Text>
         <Text style={styles.bodyText}>
           Tap 'ClipCascade' instead of 'Copy'.
         </Text>
@@ -209,7 +210,9 @@ export default function SettingsPage({
         No manual action is required to receive data.
       </Text>
 
-      <Text style={styles.sectionTitle}>Automatic Clipboard Monitoring Setup</Text>
+      <Text style={styles.sectionTitle}>
+        Automatic Clipboard Monitoring Setup
+      </Text>
       <Text style={styles.bodyText}>
         On rooted/non-rooted devices, run these ADB commands to enable automatic
         clipboard monitoring:
@@ -251,6 +254,8 @@ export default function SettingsPage({
 const styles = StyleSheet.create({
   container: {
     padding: 20,
+    backgroundColor: C.background,
+    flexGrow: 1,
   },
   header: {
     alignItems: 'center',
@@ -259,33 +264,35 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     alignItems: 'center',
-    backgroundColor: '#202124',
+    backgroundColor: C.surface,
     borderRadius: 5,
-    height: 42,
+    height: 44,
     justifyContent: 'center',
-    width: 42,
+    width: 44,
   },
   headerSpacer: {
-    width: 42,
+    width: 44,
   },
   title: {
-    color: '#d8d9db',
+    color: C.text,
     flex: 1,
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
+    fontSize: 25,
+    fontWeight: '600',
+    textAlign: 'left',
+    marginLeft: 12,
   },
   categoryList: {
-    gap: 12,
+    gap: 0,
   },
   categoryRow: {
     alignItems: 'center',
-    backgroundColor: '#202124',
-    borderRadius: 6,
+    backgroundColor: C.background,
+    borderBottomWidth: 1,
+    borderBottomColor: C.line,
     flexDirection: 'row',
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 0,
+    paddingVertical: 22,
   },
   categoryIcon: {
     alignItems: 'center',
@@ -297,12 +304,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryTitle: {
-    color: '#f4f4f5',
+    color: C.text,
     fontSize: 18,
     fontWeight: 'bold',
   },
   categoryDescription: {
-    color: '#bfc2c7',
+    color: C.muted,
     fontSize: 14,
     lineHeight: 20,
     marginTop: 4,
@@ -320,17 +327,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   settingLabel: {
-    color: '#d8d9db',
+    color: C.text,
     flex: 1,
     fontSize: 16,
     lineHeight: 22,
   },
   input: {
-    backgroundColor: '#1f2023',
-    borderColor: '#555a60',
+    backgroundColor: C.field,
+    borderColor: C.line,
     borderRadius: 5,
     borderWidth: 1,
-    color: '#f4f4f5',
+    color: C.text,
+    fontSize: 16,
+    minHeight: 44,
     padding: 10,
   },
   actionButton: {
@@ -348,10 +357,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   saveButton: {
-    backgroundColor: '#006b3c',
+    backgroundColor: '#006b7c',
   },
   darkButton: {
-    backgroundColor: '#050505',
+    backgroundColor: C.raised,
   },
   actionButtonText: {
     color: 'white',
@@ -360,13 +369,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   sectionTitle: {
-    color: '#d8d9db',
+    color: C.text,
     fontSize: 17,
     fontWeight: 'bold',
     marginTop: 6,
   },
   bodyText: {
-    color: '#d0d2d6',
+    color: C.muted,
     fontSize: 16,
     lineHeight: 23,
   },

@@ -7,6 +7,27 @@ from utils.activity_log import ActivityLog
 
 
 class ActivityWindowTests(unittest.TestCase):
+    def test_compact_history_reserves_visible_actions_and_close_keeps_root(self):
+        root = tk.Tk()
+        root.withdraw()
+        log = ActivityLog()
+        log.append('Local', 'Text', 'Sent', 'sample', replay_text='sample')
+        window = ActivityWindow(log, root, copy_text_locally=Mock(),
+                                resend_text=Mock(), is_connected=lambda: True)
+        try:
+            window.geometry('800x520')
+            root.update()
+            for button in (window.copy_button, window.resend_button):
+                self.assertTrue(button.winfo_ismapped())
+                self.assertLessEqual(button.winfo_rooty() + button.winfo_height(),
+                                     window.winfo_rooty() + window.winfo_height())
+            window.close()
+            self.assertTrue(root.winfo_exists())
+        finally:
+            if window.winfo_exists():
+                window.close()
+            root.destroy()
+
     def test_resend_button_uses_selected_private_text_and_disables_offline(self):
         root = tk.Tk()
         root.withdraw()

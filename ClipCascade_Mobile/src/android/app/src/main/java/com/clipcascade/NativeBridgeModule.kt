@@ -52,6 +52,13 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     private val secureRandom = SecureRandom()
     private val serviceTickHandler = Handler(Looper.getMainLooper())
 
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun getUiPreviewMode(): String {
+        if (!BuildConfig.DEBUG) return ""
+        val mode = currentActivity?.intent?.getStringExtra("clipcascade_ui_preview") ?: ""
+        return if (mode in setOf("history", "health", "settings", "login")) mode else ""
+    }
+
     @ReactMethod
     fun copyTextToClipboard(text: String, promise: Promise) {
         try {

@@ -8,9 +8,23 @@
 
 This fork currently ships the Android APK, Windows EXE, and self-hosted server JAR used for the Darkaxt clipboard setup. The forked Android app keeps package name `com.darkaxt.clipcascade` so it can be installed beside the upstream `com.clipcascade` APK during testing, while its launcher and in-app label are simply `ClipCascade`.
 
-Android, Windows and server `3.2.0.33` build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
+Android and Windows `3.2.0.34`, with server `3.2.0.33`, build on upstream ClipCascade `3.2.0` with Darkaxt fork revisions.
 
 ### Latest Darkaxt Release
+
+Client release `3.2.0.34` introduces the **Control Room** interface on Android
+and Windows: history first, local search and status filters, selected-entry
+details, separate Copy and Resend actions, and distinct connection/capture health.
+Settings and existing sign-in/encryption options remain accessible. Windows title
+bars, resize borders, controls and app dialogs use the same dark palette; the
+white tray icon and its lifecycle are unchanged. Android reserves navigation-bar
+space so its bottom controls remain reachable on Android 15.
+
+The transport, application ACK rules and notification grace periods from
+`3.2.0.33` are unchanged. No server upgrade is required for this UI-only release.
+Android updates remain user-installed.
+
+Download [Android and Windows 3.2.0.34](https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.34).
 
 Release `3.2.0.33` adds P2S **clipboard application acknowledgements** across
 Android, Windows and the server. `Sent` is an unconfirmed transport handoff;
