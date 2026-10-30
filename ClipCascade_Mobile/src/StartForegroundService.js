@@ -1318,12 +1318,13 @@ module.exports = async (inputData = null) => {
                       },
                     });
                   } else {
-                    const deliveryId = await generateUuid();
-                    clipboardDelivery.begin(deliveryId, clipContent, type_);
-                    if (cipher_enabled === 'true') {
-                      //ecrypt
-                      clipContent = await encrypt(clipContent);
-                    }
+                    const message = await clipboardDelivery.prepare(clipContent, type_, async () => {
+                      const deliveryId = await generateUuid();
+                      const wirePayload = cipher_enabled === 'true' ? await encrypt(clipContent) : clipContent;
+                      return { id: deliveryId, body: JSON.stringify({
+                        payload: String(wirePayload), type: type_, metadata: { deliveryId },
+                      }) };
+                    }, Boolean(options.manualResend));
 
                     await setDataInAsyncStorage(
                       'wsStatusMessage',
@@ -1333,11 +1334,7 @@ module.exports = async (inputData = null) => {
                     // send
                     stompClient.publish({
                       destination: SEND_DESTINATION,
-                      body: JSON.stringify({
-                        payload: String(clipContent),
-                        type: type_,
-                        metadata: { deliveryId },
-                      }),
+                      body: message.body,
                     });
                     await appendActivityEvent({
                       direction: 'outbound',
@@ -2044,7 +2041,7 @@ module.exports = async (inputData = null) => {
                 // set clipboard content
                 if (type_ === 'text') {
                   await setLocalClipboardEchoSuppression(type_, hcb);
-                  Clipboard.setString(cb);
+                  await NativeBridgeModule.copyTextToClipboard(cb);
                 } else if (type_ === 'image') {
                   await setLocalClipboardEchoSuppression(type_, hcb);
                   localImageEchoGuard.arm();

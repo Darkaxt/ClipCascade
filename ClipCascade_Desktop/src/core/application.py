@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 
 
@@ -75,8 +76,9 @@ class Application:
         logging.basicConfig(
             level=LOG_LEVEL,
             format=LOG_FORMAT,
-            filename=self.log_file_path,
-            filemode="w",
+            handlers=[RotatingFileHandler(self.log_file_path, maxBytes=512 * 1024,
+                                          backupCount=2, encoding='utf-8')],
+            force=True,
         )
 
     def ensure_single_instance(self):

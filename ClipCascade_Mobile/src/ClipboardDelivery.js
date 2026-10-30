@@ -16,8 +16,33 @@ export const createClipboardDelivery = ({ now = Date.now } = {}) => {
   const applied = new Map();
   const applying = new Map();
   let latestId;
+  let preparing;
+  let generation = 0;
   return {
-    resetOutbound() { pending.clear(); latestId = undefined; },
+    resetOutbound() { pending.clear(); latestId = undefined; preparing = undefined; generation += 1; },
+    prepare(content, type, build, force = false) {
+      const hash = fingerprint(content, type);
+      const state = pending.get(latestId);
+      if (!force && preparing?.hash === hash &&
+          (!preparing.id || (preparing.id === latestId && state && !state.complete))) {
+        return preparing.promise;
+      }
+      const reservation = { hash, generation };
+      preparing = reservation;
+      reservation.promise = Promise.resolve().then(build).then(message => {
+        if (reservation.generation !== generation) { throw new Error('Clipboard send superseded by connection change'); }
+        // Retain the exact ciphertext: the server binds an ID to its wire bytes.
+        pending.set(message.id, { hash, at: now(), complete: false, type });
+        if (preparing === reservation) { latestId = message.id; }
+        reservation.id = message.id;
+        trim(pending);
+        return message;
+      }).catch(error => {
+        if (preparing === reservation) { preparing = undefined; }
+        throw error;
+      });
+      return reservation.promise;
+    },
     begin(id, content, type) {
       pending.set(id, { hash: fingerprint(content, type), at: now(), complete: false, type });
       latestId = id;
@@ -29,7 +54,7 @@ export const createClipboardDelivery = ({ now = Date.now } = {}) => {
     },
     acknowledge(message) {
       if (message?.protocol === 1 && message.kind === 'clipboard_delivery_reset') {
-        pending.clear(); latestId = undefined; return null;
+        pending.clear(); latestId = undefined; preparing = undefined; generation += 1; return null;
       }
       if (message?.protocol !== 1 || message.kind !== 'clipboard_delivery') { return null; }
       const state = pending.get(message.deliveryId);

@@ -25,7 +25,7 @@ if PLATFORM == WINDOWS or PLATFORM == MACOS:
 
 if PLATFORM == WINDOWS:
     import win32clipboard
-    from clipboard.windows_access import open_clipboard
+    from clipboard.windows_access import open_clipboard, ClipboardBusyError, ClipboardApplyCancelled
     from clipboard import clipboard_monitor_win as clipboard_monitor
 elif PLATFORM == MACOS:
     import pasteboard
@@ -290,16 +290,20 @@ class ClipboardManager:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
             self.append_activity("Local", type_, "Error", "", str(e))
 
-    def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
+    def base64_to_clipboard(self, base64_string: str, type_: str = "text", access_options=None):
         type_ = type_.lower()
         if type_ in ('text', 'image'):
             self._remote_echo = (ClipboardManager.hash_clipboard(base64_string), time.monotonic())
+        if PLATFORM == WINDOWS:
+            access_options = dict(access_options or {})
+            access_options['on_acquired'] = lambda: setattr(
+                self, '_remote_echo', (ClipboardManager.hash_clipboard(base64_string), time.monotonic()))
         try:
             if type_ == "text":
                 txt = base64_string
                 preview = ActivityLog.preview_text(txt)
                 if self.is_clipboard_size_within_limit(txt, type_):
-                    self.paste(txt, type_)
+                    self.paste(txt, type_, **(access_options or {}))
                     self.append_activity(
                         "Remote", type_, "Applied", preview, replay_text=txt
                     )
@@ -315,7 +319,7 @@ class ClipboardManager:
                     ClipboardManager.get_image_size(img),
                 )
                 if self.is_clipboard_size_within_limit(img, type_):
-                    self.paste(img, type_)
+                    self.paste(img, type_, **(access_options or {}))
                     self.append_activity("Remote", type_, "Applied", preview)
                     return True
                 else:
@@ -335,6 +339,9 @@ class ClipboardManager:
                         "Remote", type_, "Ignored", preview, "Size limit exceeded"
                     )
         except Exception as e:
+            if PLATFORM == WINDOWS and isinstance(e, (ClipboardBusyError, ClipboardApplyCancelled)):
+                self._remote_echo = None
+                raise
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
             self.append_activity("Remote", type_, "Error", "", str(e))
         self._remote_echo = None
@@ -360,13 +367,13 @@ class ClipboardManager:
                 logging.error(f"Failed to execute command: {e}")
                 raise
 
-    def paste(self, payload: any, payload_type: str = "text"):
+    def paste(self, payload: any, payload_type: str = "text", **access_options):
         try:
             self.reset_files_download()
 
             if payload_type == "text":
                 if PLATFORM == WINDOWS:
-                    with open_clipboard(write=True):
+                    with open_clipboard(write=True, **access_options):
                         win32clipboard.EmptyClipboard()
                         win32clipboard.SetClipboardText(payload, win32clipboard.CF_UNICODETEXT)
                 elif PLATFORM == MACOS:
@@ -392,7 +399,7 @@ class ClipboardManager:
                         payload.convert("RGB").save(output, format="BMP")
                         bmp_data = output.getvalue()[14:]  # Skip BMP header (14 bytes)
 
-                    with open_clipboard(write=True):
+                    with open_clipboard(write=True, **access_options):
                         win32clipboard.EmptyClipboard()
                         win32clipboard.SetClipboardData(win32clipboard.CF_DIB, bmp_data)
                         clipboard_monitor.enable_block_image_once()

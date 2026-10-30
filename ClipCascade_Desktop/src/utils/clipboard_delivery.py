@@ -21,12 +21,25 @@ class ClipboardDelivery:
             self.pending = OrderedDict()
             self.applied = OrderedDict()
             self.latest_id = None
+            self.wire_body = None
+
+    def retry_body(self, payload, type_):
+        with self._lock:
+            state = self.pending.get(self.latest_id)
+            if state and not state[2] and state[0] == self.fingerprint(payload, type_):
+                return self.wire_body
+            return None
+
+    def remember_body(self, body):
+        with self._lock:
+            self.wire_body = body
 
     def begin(self, payload, type_):
         with self._lock:
             id_ = str(uuid.uuid4())
             self.pending[id_] = [self.fingerprint(payload, type_), time.monotonic(), False, type_]
             self.latest_id = id_
+            self.wire_body = None
             self._trim(self.pending)
             return id_
 
@@ -41,6 +54,7 @@ class ClipboardDelivery:
             if message.get('protocol') == 1 and message.get('kind') == 'clipboard_delivery_reset':
                 self.pending.clear()
                 self.latest_id = None
+                self.wire_body = None
                 return None
             if message.get('protocol') != 1 or message.get('kind') != 'clipboard_delivery':
                 return None

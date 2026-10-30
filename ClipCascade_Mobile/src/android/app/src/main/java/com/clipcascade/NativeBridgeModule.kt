@@ -63,7 +63,11 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     fun copyTextToClipboard(text: String, promise: Promise) {
         try {
             val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("ClipCascade", text))
+            val clip = ClipData.newPlainText("ClipCascade", text)
+            clip.description.extras = android.os.PersistableBundle().apply {
+                putString(ClipboardWriteOrigin.EXTRA, ClipboardWriteOrigin.token)
+            }
+            clipboard.setPrimaryClip(clip)
             promise.resolve(true)
         } catch (error: Exception) {
             promise.reject("CLIPBOARD_APPLY_FAILED", "Unable to apply text clipboard", error)
@@ -301,6 +305,9 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
             // Copy the URI to clipboard
             val clipData = ClipData.newUri(reactApplicationContext.contentResolver, "Image", imageUri)
+            clipData.description.extras = android.os.PersistableBundle().apply {
+                putString(ClipboardWriteOrigin.EXTRA, ClipboardWriteOrigin.token)
+            }
             val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(clipData)
 

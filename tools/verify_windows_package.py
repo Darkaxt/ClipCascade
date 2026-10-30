@@ -24,7 +24,8 @@ def main():
                "clipboard.clipboard_monitor_win", "core.constants",
                "stomp_ws.stomp_manager", "utils.clipboard_delivery", "p2p.p2p_manager",
                "gui.activity", "gui.theme", "gui.login", "gui.info", "gui.tray",
-               "utils.activity_presentation", "utils.activity_replay"]
+               "utils.activity_presentation", "utils.activity_replay",
+               "utils.pending_clipboard", "core.application"]
     for name in modules:
         actual = pyz.extract(name)
         source = src.joinpath(*name.split(".")).with_suffix(".py")

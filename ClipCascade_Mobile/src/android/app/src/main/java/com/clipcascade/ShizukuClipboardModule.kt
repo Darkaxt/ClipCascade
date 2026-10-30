@@ -270,6 +270,9 @@ class ShizukuClipboardModule(
         val rawBinder = SystemServiceHelper.getSystemService(Context.CLIPBOARD_SERVICE)
             ?: throw IllegalStateException("Clipboard service unavailable")
         val clip = invokeGetPrimaryClip(rawBinder) ?: return null
+        if (ClipboardWriteOrigin.isLocal(clip.description.extras?.getString(ClipboardWriteOrigin.EXTRA))) {
+            return null
+        }
         return clipDataToEvent(clip)?.let { Snapshot(it, clip.description.timestamp) }
     }
 

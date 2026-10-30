@@ -49,7 +49,8 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         // 1) Clipboard listener
         listener = ClipboardManager.OnPrimaryClipChangedListener {
             val clip = clipboardManager.primaryClip
-            if (clip != null && clip.itemCount > 0) {
+            if (clip != null && clip.itemCount > 0 && !ClipboardWriteOrigin.isLocal(
+                    clip.description.extras?.getString(ClipboardWriteOrigin.EXTRA))) {
 
                 val description = clip.description
                 if (description != null) { 

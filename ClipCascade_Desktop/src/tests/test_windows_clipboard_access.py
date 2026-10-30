@@ -85,6 +85,25 @@ class WindowsClipboardAccessTest(unittest.TestCase):
         self.clipboard.OpenClipboard.assert_called_once()
         sleep.assert_not_called()
 
+    def test_deferred_acquisition_has_no_deadline_and_checks_cancellation(self):
+        self.clipboard.OpenClipboard.side_effect = [NativeError(5), None]
+        acquired = Mock()
+        with patch.object(self.access.time, 'sleep'), patch.object(self.access.time, 'monotonic') as clock:
+            with self.access.open_clipboard(write=True, wait_for_access=True,
+                                            cancelled=lambda: False, on_acquired=acquired):
+                self.clipboard.SetClipboardText('eventual application', 13)
+        clock.assert_not_called()
+        acquired.assert_called_once()
+        self.clipboard.SetClipboardText.assert_called_once()
+
+    def test_superseded_pending_write_does_not_mutate_clipboard(self):
+        with self.assertRaises(self.access.ClipboardApplyCancelled):
+            with self.access.open_clipboard(write=True, wait_for_access=True, cancelled=lambda: True):
+                self.clipboard.EmptyClipboard()
+        self.clipboard.OpenClipboard.assert_not_called()
+        self.clipboard.EmptyClipboard.assert_not_called()
+        self.gui.DestroyWindow.assert_called_once_with(123)
+
     def test_reader_waits_for_internal_writer_before_opening(self):
         attempted = threading.Event()
         entered = threading.Event()

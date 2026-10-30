@@ -16,7 +16,12 @@ from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
 from utils.activity_log import ActivityLog
 from utils.clipboard_delivery import ClipboardDelivery
+from utils.pending_clipboard import PendingClipboard
 from core.constants import *
+
+if PLATFORM == WINDOWS:
+    import win32clipboard
+    from clipboard.windows_access import ClipboardBusyError, ClipboardApplyCancelled
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -44,6 +49,8 @@ class STOMPManager(WSInterface):
         self.is_login_phase = is_login_phase
         self.client = None
         self.delivery = ClipboardDelivery()
+        self._clipboard_send_lock = Lock()
+        self._pending_clipboard = PendingClipboard()
         self.clipboard_manager.detected_callback = lambda type_: report_clipboard_detected(self.client, type_)
         self.is_connected = False
         self.disconnected = False
@@ -160,6 +167,7 @@ class STOMPManager(WSInterface):
             return False, msg
 
     def _subscribe(self, client):
+        self._pending_clipboard.cancel()
         client.subscribe(destination=SUBSCRIPTION_DESTINATION, callback=self._receive)
         self.delivery.reset()
         client.subscribe(destination='/user/queue/clipboard-delivery', callback=self._delivery_status)
@@ -169,6 +177,7 @@ class STOMPManager(WSInterface):
         with self._state_lock:
             if client is not None and client is not self.client:
                 return
+            self._pending_clipboard.cancel()
             self.is_connected = False
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
@@ -209,6 +218,10 @@ class STOMPManager(WSInterface):
         return self.send(content, "text", force=True)
 
     def send(self, payload: str, payload_type: str = "text", force=False):
+        with self._clipboard_send_lock:
+            return self._send_clipboard(payload, payload_type, force)
+
+    def _send_clipboard(self, payload: str, payload_type: str, force):
         try:
             if self.is_connected:
                 replay_text = payload if payload_type.lower() == "text" else None
@@ -217,15 +230,19 @@ class STOMPManager(WSInterface):
                                          ActivityLog.preview_payload(payload, payload_type),
                                          'Post-apply clipboard echo; no resend', replay_text=replay_text)
                     return False
+                self._pending_clipboard.cancel()
                 if force or not self.delivery.should_suppress(payload, payload_type):
                     preview = ActivityLog.preview_payload(payload, payload_type)
-                    delivery_id = self.delivery.begin(payload, payload_type)
-                    if self.config.data["cipher_enabled"]:
-                        payload = CipherManager.encode_to_json_string(
-                            **self.cipher_manager.encrypt(payload)
-                        )
-                    body = json.dumps({"payload": payload, "type": payload_type,
-                                       "metadata": {"deliveryId": delivery_id}})
+                    body = None if force else self.delivery.retry_body(payload, payload_type)
+                    if body is None:
+                        delivery_id = self.delivery.begin(payload, payload_type)
+                        if self.config.data["cipher_enabled"]:
+                            payload = CipherManager.encode_to_json_string(
+                                **self.cipher_manager.encrypt(payload)
+                            )
+                        body = json.dumps({"payload": payload, "type": payload_type,
+                                           "metadata": {"deliveryId": delivery_id}})
+                        self.delivery.remember_body(body)
                     self.client.send(destination=SEND_DESTINATION, body=body)
                     self.append_activity(
                         "Local",
@@ -265,6 +282,33 @@ class STOMPManager(WSInterface):
             'deliveryId': metadata['deliveryId'], 'sourceSessionId': metadata['sourceSessionId'],
         }))
 
+    def _defer_received(self, generation, key, sequence, payload, payload_type, metadata, acknowledged):
+        client = self.client
+        self.append_activity('Remote', payload_type, 'Pending', '',
+                             'Windows clipboard unavailable; waiting for access')
+
+        def apply(cancelled):
+            def superseded():
+                return (cancelled() or not self.is_connected or self.client is not client
+                        or win32clipboard.GetClipboardSequenceNumber() != sequence)
+            try:
+                applied = self.clipboard_manager.base64_to_clipboard(
+                    payload, payload_type, access_options={
+                        'wait_for_access': True, 'cancelled': superseded,
+                    })
+                if applied and self._pending_clipboard.is_current(generation) and self.client is client and self.is_connected:
+                    if acknowledged:
+                        self.delivery.mark_applied(key[:2], key[2])
+                        self._ack_applied(metadata)
+            except ClipboardApplyCancelled:
+                self.append_activity('Remote', payload_type, 'Superseded', '',
+                                     'Pending application replaced by newer clipboard or connection state')
+            except Exception as error:
+                logging.error('Deferred clipboard application failed: %s', error)
+                self.append_activity('Remote', payload_type, 'Error', '', str(error))
+
+        self._pending_clipboard.defer(generation, key, apply)
+
     def _receive(self, frame: any) -> str:
         try:
             if self.is_connected:
@@ -288,6 +332,11 @@ class STOMPManager(WSInterface):
                 if acknowledged_protocol and self.delivery.was_applied(delivery_key, fingerprint):
                     self._ack_applied(metadata)
                     return
+                pending_key = (*delivery_key, fingerprint)
+                if self._pending_clipboard.contains(pending_key):
+                    return
+                generation = self._pending_clipboard.cancel()
+                sequence = win32clipboard.GetClipboardSequenceNumber() if PLATFORM == WINDOWS else 0
                 replay_text = payload if payload_type.lower() == "text" else None
                 self.append_activity(
                     "Remote",
@@ -297,9 +346,16 @@ class STOMPManager(WSInterface):
                     replay_text=replay_text,
                 )
                 if acknowledged_protocol or self.clipboard_manager.has_clipboard_changed(payload):
-                    applied = self.clipboard_manager.base64_to_clipboard(
-                        base64_string=payload, type_=payload_type
-                    )
+                    try:
+                        applied = self.clipboard_manager.base64_to_clipboard(
+                            base64_string=payload, type_=payload_type
+                        )
+                    except Exception as error:
+                        if PLATFORM != WINDOWS or not isinstance(error, ClipboardBusyError):
+                            raise
+                        self._defer_received(generation, pending_key, sequence, payload, payload_type,
+                                             metadata, acknowledged_protocol)
+                        return
                     if applied and acknowledged_protocol:
                         self.delivery.mark_applied(delivery_key, fingerprint)
                         self._ack_applied(metadata)
@@ -354,6 +410,7 @@ class STOMPManager(WSInterface):
             self.connect()
 
     def disconnect(self):
+        self._pending_clipboard.cancel()
         self.disconnected = True
         self.connection_notifications.reset()
         self._reconnect_stop.set()

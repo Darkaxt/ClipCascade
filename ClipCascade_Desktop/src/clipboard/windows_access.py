@@ -19,6 +19,10 @@ class ClipboardBusyError(RuntimeError):
     pass
 
 
+class ClipboardApplyCancelled(RuntimeError):
+    pass
+
+
 def _holder_detail():
     try:
         hwnd = win32clipboard.GetOpenClipboardWindow()
@@ -31,7 +35,7 @@ def _holder_detail():
 
 
 @contextmanager
-def open_clipboard(write=False):
+def open_clipboard(write=False, wait_for_access=False, cancelled=None, on_acquired=None):
     with _ACCESS_LOCK:
         # SetClipboardData requires an owner window after EmptyClipboard.
         owner = win32gui.CreateWindowEx(
@@ -40,22 +44,28 @@ def open_clipboard(write=False):
         try:
             # Preserve pyperclip's existing external-acquisition budget. Win32
             # exposes no close/availability event, so only failed Open calls poll.
-            deadline = time.monotonic() + 0.5
+            deadline = None if wait_for_access else time.monotonic() + 0.5
             while True:
+                if cancelled and cancelled():
+                    raise ClipboardApplyCancelled('Pending clipboard application superseded')
                 try:
                     win32clipboard.OpenClipboard(owner)
                     break
                 except pywintypes.error as error:
                     if error.winerror not in (0, 5):
                         raise
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
+                    remaining = deadline - time.monotonic() if deadline is not None else None
+                    if remaining is not None and remaining <= 0:
                         raise ClipboardBusyError(
                             "Windows clipboard busy; unable to acquire access"
-                            + _holder_detail()
+                            + _holder_detail() + f"; native error {error.winerror}"
                         ) from error
-                    time.sleep(min(0.01, remaining))
+                    time.sleep(min(0.01, remaining) if remaining is not None else 0.01)
             try:
+                if cancelled and cancelled():
+                    raise ClipboardApplyCancelled('Pending clipboard application superseded')
+                if on_acquired:
+                    on_acquired()
                 yield
             finally:
                 win32clipboard.CloseClipboard()
