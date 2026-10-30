@@ -64,9 +64,33 @@ initial trigger remains unproved. Current phone DNS failures are separate.
    distinct required owners, not a generalized retry framework. No tracked debt,
    unresolved acceptance blocker or deferral. Phone installation remains outside
    this verification boundary; no claim to have recovered lost historical logs.
-2. Final release and local delivery: ACTIVE (R6).
-   Remaining: Windows packaging, independent package checks, commit/publication,
-   independent download and local activation/ACK. No tracked deferrals.
+2. Final release and local delivery: COMPLETE (R6).
+   Normal published release/tag 3.2.0.35 points to source commit
+   90d2c2e2bc007a2d7c4db471bf21479ce5897d35. Version-consistency CI 41050527907
+   passed. Remote main/tag and publication state/assets were read back. Both
+   downloads were independently retrieved and checked against build SHA256SUMS,
+   embedded versions, APK signer and native provenance paths/JS retry guard.
+   Windows packaged code matches all sixteen checked modules; artwork is unchanged.
+   Local Windows exited through its original native tray loop, without forced
+   termination or logoff. Installed EXE matches the downloaded release. DATA hash
+   remained byte-for-byte unchanged through replacement and startup. Persistent
+   runtime is D:\AppScratch\ClipCascade (loaded python311.dll path verified),
+   not expendable task scratch. A fresh session-bound Client Alive ACK reports
+   Windows 3.2.0.35; this does not substitute for application-ACK regression tests.
+   Existing 3.2.0.34 package is retained as the explicit rollback source.
+   Android was not installed/restarted; update availability is verified, not
+   physical-device acceptance of an uninstalled APK. No DNS/Tailscale changes.
+   D: build scratch cleanup bd211704eb1870d12b5f4c9c4f8f47f5 applied successfully:
+   111145512 logical bytes, no exclusions/errors. Independent-download/helper
+   cleanup 14ad42cb3b0349806c931a7568d9e992 also applied: 153038973 logical bytes,
+   no exclusions/errors. Required packages, verification and active runtime remain.
+   Final reconciliation: R1-R6 verified at the declared boundaries, no release
+   blockers or tracked deferrals; stage-1 debt assessment remains applicable.
+
+## Delivered SHA-256
+
+- Android: 06c498fd8ed34cc1189e149cbd1f892bac68dc814cbaef44abcc0f079c6814c9
+- Windows: de76763f162d277ec7fbce94426367888a85d0b162259dba97913895e6d18e8b
 
 New build scratch is D:\Temp\clipcascade-retry-3.2.0.35 (native/small-file I/O
 exception). Required versioned deliverables/verification are retained at
