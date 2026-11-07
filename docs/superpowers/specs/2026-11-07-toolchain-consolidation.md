@@ -62,13 +62,12 @@ Primary sources (observed 2026-11-07):
 1. Integrated toolchain migration - COMPLETE (R1-R3). Implement the complete
    build-only dependency adjustment and verify release/native/JS contracts.
    Verified by the final gated release run and packaged-client checks below.
-2. Final release and reporting - ACTIVE (R4). Reconcile scope, commit,
+2. Final release and reporting - COMPLETE (R4). Reconcile scope, commit,
    publish matching versioned artifacts, independently verify delivery and submit
    the immutable report. No intermediate publication.
 
-Remaining acceptance: final commit/publication, independent download verification,
-immutable owner report and transactional cleanup. These are actionable stage-2
-requirements, not external blockers.
+Final acceptance: commit/publication, independent download verification, immutable
+owner report and transactional cleanup are satisfied. No unresolved blockers.
 No tracked deferrals. No active fault in installed clients is inferred.
 
 Evidence and current results will be recorded here at meaningful checkpoints.
@@ -162,6 +161,23 @@ removed through transactions e3e7acd4966aae63eaa55ba6facb3a80 and
 0d860c62cdbd2fa7d5241b499b9511f2 (115998065 logical bytes total). Both receipts
 are applied, with no residual roots. Retained verification evidence and release
 assets are outside these targets. Shared caches/toolchains remain untouched.
+Final delivery: normal release 3.2.0.36 was published at 2026-11-07T09:22:01Z
+from 7f5c633a6ebcaa3061e10bbae298cf5b79ceffa1. Tag/source commit, publication
+state and all required assets were read back. Client version consistency, CodeQL
+and Dependency Graph runs succeeded for that commit. Independently downloaded
+APK/EXE and SHA256SUMS passed the same package gates; all 40 native library
+payloads still match 3.2.0.35. Delivery evidence is retained under the release's
+verification directory. Release link:
+https://github.com/Darkaxt/ClipCascade/releases/tag/3.2.0.36
+
+Immutable report 20261107T092501Z-gradle982-jdk25.json was published under the
+assigned shared owner-report directory using a complete sibling file and a
+non-overwriting atomic move. The central ledger was not edited by this owner.
+Delivery scratch E:/Temp/clipcascade-toolchain-delivery-20261107 was removed by
+applied transaction 9935b7cb27334f02b39029d2ac207bb7 (160726714 logical bytes).
+All three task scratch roots are absent. Installed clients, server, credentials,
+signing identity and user data were preserved; no device access occurred.
+This documentation-only completion record does not change the released payload.
 New bulk build scratch uses `D:/Temp/clipcascade-toolchain-20261107` for sustained
 small-file I/O; retained release evidence belongs under `D:/Artifacts/ClipCascade`.
 Existing C: repository and required node_modules/app output bindings are preserved.
