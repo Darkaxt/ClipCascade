@@ -165,7 +165,7 @@ if PLATFORM.startswith(LINUX):
 
 # App version
 if PLATFORM == WINDOWS:
-    APP_VERSION = "3.2.0.35"
+    APP_VERSION = "3.2.0.36"
 elif PLATFORM == MACOS:
     APP_VERSION = "3.2.0"
 elif PLATFORM.startswith(LINUX):

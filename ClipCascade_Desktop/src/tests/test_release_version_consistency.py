@@ -26,6 +26,19 @@ def _android_version_code(version):
 
 
 class ReleaseVersionConsistencyTests(unittest.TestCase):
+    def test_android_navigation_bar_style_is_api_qualified(self):
+        resource_root = "ClipCascade_Mobile/src/android/app/src/main/res/"
+        base = ET.fromstring(_read_text(resource_root + "values/styles.xml"))
+        qualified = ET.fromstring(_read_text(resource_root + "values-v27/styles.xml"))
+        base_theme = base.find("./style[@name='Base.AppTheme']")
+        self.assertIsNotNone(base_theme)
+        self.assertEqual("Theme.AppCompat.DayNight.NoActionBar", base_theme.get("parent"))
+        self.assertIsNone(base_theme.find("./item[@name='android:windowLightNavigationBar']"))
+        self.assertEqual("Base.AppTheme", base.find("./style[@name='AppTheme']").get("parent"))
+        theme = qualified.find("./style[@name='AppTheme']")
+        self.assertEqual("Base.AppTheme", theme.get("parent"))
+        self.assertEqual("false", theme.find("./item[@name='android:windowLightNavigationBar']").text)
+
     def test_android_main_activity_is_excluded_from_recents(self):
         manifest = ET.fromstring(
             _read_text("ClipCascade_Mobile/src/android/app/src/main/AndroidManifest.xml")

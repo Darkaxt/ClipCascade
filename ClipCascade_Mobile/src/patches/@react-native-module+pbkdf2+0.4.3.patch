@@ -1,8 +1,7 @@
 diff --git a/node_modules/@react-native-module/pbkdf2/android/build.gradle b/node_modules/@react-native-module/pbkdf2/android/build.gradle
-index 7aa05e6..a8df65b 100644
 --- a/node_modules/@react-native-module/pbkdf2/android/build.gradle
 +++ b/node_modules/@react-native-module/pbkdf2/android/build.gradle
-@@ -2,7 +2,6 @@ buildscript {
+@@ -2,7 +2,6 @@
      if (project == rootProject) {
          repositories {
              google()
@@ -10,7 +9,15 @@ index 7aa05e6..a8df65b 100644
              mavenCentral()
          }
  
-@@ -56,7 +55,6 @@ repositories {
+@@ -20,6 +19,7 @@
+ }
+ 
+ android {
++    namespace "com.reactnativepbkdf2"
+     compileSdkVersion safeExtGet('compileSdkVersion', 31)
+     buildToolsVersion safeExtGet('buildToolsVersion', '31.0.0')
+     defaultConfig {
+@@ -56,7 +56,6 @@
          url("$rootDir/../node_modules/react-native/android")
      }
      google()

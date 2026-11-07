@@ -31,13 +31,13 @@ if ($Stage -eq 'Verify') {
     & $python -B "$repo\tools\verify_windows_clipboard.py" --read-only *> "$release\verification\native-acquisition-$stamp.json"
     if ($LASTEXITCODE -ne 0) { throw 'Native read-only clipboard acquisition verification failed' }
 } elseif ($Stage -eq 'Android') {
-    $env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
+    $env:JAVA_HOME = 'D:\Tools\jdk25-microsoft\jdk-25.0.4.1+1'
     $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
     $env:CMAKE_BUILD_PARALLEL_LEVEL = '2'
     $env:NINJA_NUM_JOBS = '2'
     $log = "$release\verification\android-build-$stamp.log"
     $ErrorActionPreference = 'Continue'
-    & python C:\Users\darka\.codex\skills\gradle-build-gate\scripts\invoke_gradle_build_gate.py run --project "$repo\ClipCascade_Mobile\src\android" --owner-task "Verify retry-loop native contracts and package Android $version" --gradle-heap-gb 3 --kotlin-heap-gb 3 --log $log -- :app:testReleaseUnitTest :app:assembleRelease
+    & python C:\Users\darka\.agents\skills\gradle-build-gate\scripts\invoke_gradle_build_gate.py run --project "$repo\ClipCascade_Mobile\src\android" --owner-task "Verify native contracts and package Android $version" --gradle-heap-gb 3 --kotlin-heap-gb 3 --log $log -- '-Dorg.gradle.java.installations.auto-detect=false' '-Dorg.gradle.java.installations.auto-download=false' "-Dorg.gradle.java.installations.paths=$env:JAVA_HOME" :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
     $result = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($result -ne 0) { throw "Gradle gate failed: $result" }

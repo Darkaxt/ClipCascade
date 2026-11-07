@@ -1,12 +1,16 @@
-param([Parameter(Mandatory=$true)][string]$ArtifactDirectory, [switch]$WriteSums)
+param(
+    [Parameter(Mandatory=$true)][string]$ArtifactDirectory,
+    [switch]$WriteSums,
+    [string]$BaselineAndroidApk
+)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $version = (Get-Content "$repo\version.json" -Raw | ConvertFrom-Json).windows
 $reference = "D:\Artifacts\ClipCascade\releases\$version"
 $python = 'C:\Users\darka\AppData\Local\Programs\Python\Python311\python.exe'
-$sdk = 'C:\Users\darka\AppData\Local\Android\Sdk\build-tools\35.0.0'
+$sdk = 'C:\Users\darka\AppData\Local\Android\Sdk\build-tools\36.0.0'
 $analyzer = 'C:\Users\darka\AppData\Local\Android\Sdk\cmdline-tools\latest\bin\apkanalyzer.bat'
-$env:JAVA_HOME = 'C:\Program Files\Zulu\zulu-21'
+$env:JAVA_HOME = 'D:\Tools\jdk25-microsoft\jdk-25.0.4.1+1'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 $names = @("ClipCascade-Android-$version.apk", "ClipCascade-Windows-$version.exe")
 $sums = @($names | ForEach-Object { '{0}  {1}' -f (Get-FileHash -LiteralPath (Join-Path $ArtifactDirectory $_)).Hash.ToLowerInvariant(), $_ })
@@ -41,6 +45,27 @@ try {
     $reader = [IO.BinaryReader]::new($entry.Open())
     try { $bundle = [Text.Encoding]::ASCII.GetString($reader.ReadBytes([int]$entry.Length)) } finally { $reader.Dispose() }
     if (-not $bundle.Contains('Clipboard send superseded by connection change')) { throw 'Packaged JS retry/reset fix missing' }
+    if ($BaselineAndroidApk) {
+        $baseline = [IO.Compression.ZipFile]::OpenRead($BaselineAndroidApk)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $libraries = @($zip.Entries | Where-Object { $_.FullName -like 'lib/*.so' })
+            $oldLibraries = @($baseline.Entries | Where-Object { $_.FullName -like 'lib/*.so' })
+            if ($libraries.Count -eq 0 -or (Compare-Object @($libraries.FullName) @($oldLibraries.FullName))) {
+                throw 'Packaged native library/ABI inventory changed'
+            }
+            foreach ($library in $libraries) {
+                $currentStream = $library.Open()
+                $previousStream = $baseline.GetEntry($library.FullName).Open()
+                try {
+                    $currentHash = [BitConverter]::ToString($sha.ComputeHash($currentStream))
+                    $previousHash = [BitConverter]::ToString($sha.ComputeHash($previousStream))
+                    if ($currentHash -ne $previousHash) { throw "Native library changed: $($library.FullName)" }
+                } finally { $currentStream.Dispose(); $previousStream.Dispose() }
+            }
+            Write-Output "Native libraries unchanged: $($libraries.Count)"
+        } finally { $sha.Dispose(); $baseline.Dispose() }
+    }
 } finally { $zip.Dispose() }
 $sums
 'Client versions, hashes, Windows source/artwork, Android signer/native provenance and packaged retry guard verified.'

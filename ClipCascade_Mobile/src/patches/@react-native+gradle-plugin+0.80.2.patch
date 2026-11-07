@@ -1,21 +1,183 @@
+diff --git a/node_modules/@react-native/gradle-plugin/gradle/libs.versions.toml b/node_modules/@react-native/gradle-plugin/gradle/libs.versions.toml
+--- a/node_modules/@react-native/gradle-plugin/gradle/libs.versions.toml
++++ b/node_modules/@react-native/gradle-plugin/gradle/libs.versions.toml
+@@ -1,10 +1,10 @@
+ [versions]
+-agp = "8.9.2"
++agp = "9.3.1"
+ gson = "2.8.9"
+ guava = "31.0.1-jre"
+ javapoet = "1.13.0"
+ junit = "4.13.2"
+-kotlin = "2.1.20"
++kotlin = "2.4.21"
+ assertj = "3.25.1"
+ 
+ [libraries]
 diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/build.gradle.kts b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/build.gradle.kts
-index 9e935c5..238f9b7 100644
 --- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/build.gradle.kts
 +++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/build.gradle.kts
-@@ -59,7 +59,7 @@ dependencies {
- // nice message showing that JDK 11 (or 17) is required first
- java { targetCompatibility = JavaVersion.VERSION_11 }
+@@ -54,18 +54,15 @@
+   testImplementation(project(":shared-testutil"))
+ }
+ 
+-// We intentionally don't build for Java 17 as users will see a cryptic bytecode version
+-// error first. Instead we produce a Java 11-compatible Gradle Plugin, so that AGP can print their
+-// nice message showing that JDK 11 (or 17) is required first
+-java { targetCompatibility = JavaVersion.VERSION_11 }
++// Gradle 9 requires Java 17 or newer for build plugins.
++java { targetCompatibility = JavaVersion.VERSION_17 }
  
 -kotlin { jvmToolchain(17) }
-+kotlin { jvmToolchain(21) }
++kotlin { jvmToolchain(25) }
  
  tasks.withType<KotlinCompile>().configureEach {
    compilerOptions {
+-    apiVersion.set(KotlinVersion.KOTLIN_1_8)
+-    // See comment above on JDK 11 support
+-    jvmTarget.set(JvmTarget.JVM_11)
++    apiVersion.set(KotlinVersion.KOTLIN_2_0)
++    jvmTarget.set(JvmTarget.JVM_17)
+     allWarningsAsErrors =
+         project.properties["enableWarningsAsErrors"]?.toString()?.toBoolean() ?: false
+   }
+diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/ReactPlugin.kt b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/ReactPlugin.kt
+--- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/ReactPlugin.kt
++++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/ReactPlugin.kt
+@@ -18,7 +18,6 @@
+ import com.facebook.react.utils.AgpConfiguratorUtils.configureBuildConfigFieldsForApp
+ import com.facebook.react.utils.AgpConfiguratorUtils.configureBuildConfigFieldsForLibraries
+ import com.facebook.react.utils.AgpConfiguratorUtils.configureDevServerLocation
+-import com.facebook.react.utils.AgpConfiguratorUtils.configureNamespaceForLibraries
+ import com.facebook.react.utils.BackwardCompatUtils.configureBackwardCompatibilityReactMap
+ import com.facebook.react.utils.DependencyUtils.configureDependencies
+ import com.facebook.react.utils.DependencyUtils.configureRepositories
+@@ -29,6 +28,7 @@
+ import com.facebook.react.utils.ProjectUtils.isNewArchEnabled
+ import com.facebook.react.utils.ProjectUtils.needsCodegenFromPackageJson
+ import com.facebook.react.utils.findPackageJsonFile
++import com.facebook.react.utils.androidComponents
+ import java.io.File
+ import kotlin.system.exitProcess
+ import org.gradle.api.Plugin
+@@ -87,7 +87,6 @@
+ 
+     // Library Only Configuration
+     configureBuildConfigFieldsForLibraries(project)
+-    configureNamespaceForLibraries(project)
+     project.pluginManager.withPlugin("com.android.library") {
+       configureCodegen(project, extension, rootExtension, isLibrary = true)
+     }
+@@ -114,7 +113,7 @@
+ 
+   /** This function configures Android resources - in this case just the bundle */
+   private fun configureResources(project: Project, reactExtension: ReactExtension) {
+-    project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++    project.androidComponents().finalizeDsl { ext ->
+       val bundleFileExtension = reactExtension.bundleAssetName.get().substringAfterLast('.', "")
+       if (!reactExtension.enableBundleCompression.get() && bundleFileExtension.isNotBlank()) {
+         ext.androidResources.noCompress.add(bundleFileExtension)
+@@ -215,7 +214,7 @@
+     // This equivalent to this DSL:
+     //
+     // android { sourceSets { main { java { srcDirs += "$generatedSrcDir/java" } } } }
+-    project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++    project.androidComponents().finalizeDsl { ext ->
+       ext.sourceSets.getByName("main").java.srcDir(generatedSrcDir.get().dir("java").asFile)
+     }
+ 
+diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/AgpConfiguratorUtils.kt b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/AgpConfiguratorUtils.kt
+--- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/AgpConfiguratorUtils.kt
++++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/AgpConfiguratorUtils.kt
+@@ -7,8 +7,8 @@
+ 
+ package com.facebook.react.utils
+ 
++import com.android.build.api.dsl.CommonExtension
+ import com.android.build.api.variant.AndroidComponentsExtension
+-import com.android.build.gradle.LibraryExtension
+ import com.facebook.react.ReactExtension
+ import com.facebook.react.utils.ProjectUtils.isHermesEnabled
+ import com.facebook.react.utils.ProjectUtils.isNewArchEnabled
+@@ -22,13 +22,21 @@
+ import org.gradle.api.plugins.AppliedPlugin
+ import org.w3c.dom.Element
+ 
++// These callbacks run only for Android application/library plugins. Newer AGP
++// leaves the raw components DSL type unbounded, so retain that known contract.
++@Suppress("UNCHECKED_CAST")
++internal fun Project.androidComponents():
++    AndroidComponentsExtension<CommonExtension, *, *> =
++    extensions.getByType(AndroidComponentsExtension::class.java)
++        as AndroidComponentsExtension<CommonExtension, *, *>
++
+ @Suppress("UnstableApiUsage")
+ internal object AgpConfiguratorUtils {
+ 
+   fun configureBuildConfigFieldsForApp(project: Project, extension: ReactExtension) {
+     val action =
+         Action<AppliedPlugin> {
+-          project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++          project.androidComponents().finalizeDsl { ext ->
+             ext.buildFeatures.buildConfig = true
+             ext.defaultConfig.buildConfigField(
+                 "boolean",
+@@ -45,7 +53,7 @@
+   fun configureBuildConfigFieldsForLibraries(appProject: Project) {
+     appProject.rootProject.allprojects { subproject ->
+       subproject.pluginManager.withPlugin("com.android.library") {
+-        subproject.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++        subproject.androidComponents().finalizeDsl { ext ->
+           ext.buildFeatures.buildConfig = true
+         }
+       }
+@@ -58,7 +66,8 @@
+ 
+     val action =
+         Action<AppliedPlugin> {
+-          project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++          project.androidComponents().finalizeDsl { ext ->
++            ext.buildFeatures.resValues = true
+             ext.defaultConfig.resValue("string", "react_native_dev_server_ip", getHostIpAddress())
+             ext.defaultConfig.resValue("integer", "react_native_dev_server_port", devServerPort)
+           }
+@@ -68,26 +77,6 @@
+     project.pluginManager.withPlugin("com.android.library", action)
+   }
+ 
+-  fun configureNamespaceForLibraries(appProject: Project) {
+-    appProject.rootProject.allprojects { subproject ->
+-      subproject.pluginManager.withPlugin("com.android.library") {
+-        subproject.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
+-          if (ext.namespace == null) {
+-            val android = subproject.extensions.getByType(LibraryExtension::class.java)
+-            val manifestFile = android.sourceSets.getByName("main").manifest.srcFile
+-
+-            manifestFile
+-                .takeIf { it.exists() }
+-                ?.let { file ->
+-                  getPackageNameFromManifest(file)?.let { packageName ->
+-                    ext.namespace = packageName
+-                  }
+-                }
+-          }
+-        }
+-      }
+-    }
+-  }
+ }
+ 
+ const val DEFAULT_DEV_SERVER_PORT = "8081"
 diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/JdkConfiguratorUtils.kt b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/JdkConfiguratorUtils.kt
-index e59e9d5..8615266 100644
 --- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/JdkConfiguratorUtils.kt
 +++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/JdkConfiguratorUtils.kt
-@@ -13,13 +13,15 @@ import org.gradle.api.Action
+@@ -7,19 +7,20 @@
+ 
+ package com.facebook.react.utils
+ 
+-import com.android.build.api.variant.AndroidComponentsExtension
+ import com.facebook.react.utils.PropertyUtils.INTERNAL_DISABLE_JAVA_VERSION_ALIGNMENT
+ import org.gradle.api.Action
  import org.gradle.api.JavaVersion
  import org.gradle.api.Project
  import org.gradle.api.plugins.AppliedPlugin
@@ -28,47 +190,79 @@ index e59e9d5..8615266 100644
     * Function that takes care of configuring the JDK toolchain for all the projects projects. As we
     * do decide the JDK version based on the AGP version that RNGP brings over, here we can safely
 -   * configure the toolchain to 17.
-+   * configure the toolchain to 21 while retaining Java 17 bytecode for Android.
++   * configure the toolchain to 25 while retaining Java 17 bytecode for Android.
     */
    fun configureJavaToolChains(input: Project) {
      // Check at the app level if react.internal.disableJavaVersionAlignment is set.
-@@ -42,10 +44,16 @@ internal object JdkConfiguratorUtils {
+@@ -33,7 +34,7 @@
+       }
+       val action =
+           Action<AppliedPlugin> {
+-            project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext
++            project.androidComponents().finalizeDsl { ext
+               ->
+               ext.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+               ext.compileOptions.targetCompatibility = JavaVersion.VERSION_17
+@@ -42,10 +43,16 @@
        project.pluginManager.withPlugin("com.android.application", action)
        project.pluginManager.withPlugin("com.android.library", action)
        project.pluginManager.withPlugin("org.jetbrains.kotlin.android") {
 -        project.kotlinExtension.jvmToolchain(17)
-+        project.kotlinExtension.jvmToolchain(21)
++        project.kotlinExtension.jvmToolchain(25)
 +        project.tasks.withType(KotlinCompile::class.java).configureEach {
 +          it.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 +        }
        }
        project.pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
 -        project.kotlinExtension.jvmToolchain(17)
-+        project.kotlinExtension.jvmToolchain(21)
++        project.kotlinExtension.jvmToolchain(25)
 +        project.tasks.withType(KotlinCompile::class.java).configureEach {
 +          it.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 +        }
        }
      }
    }
+diff --git a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/NdkConfiguratorUtils.kt b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/NdkConfiguratorUtils.kt
+--- a/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/NdkConfiguratorUtils.kt
++++ b/node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/src/main/kotlin/com/facebook/react/utils/NdkConfiguratorUtils.kt
+@@ -7,7 +7,6 @@
+ 
+ package com.facebook.react.utils
+ 
+-import com.android.build.api.variant.AndroidComponentsExtension
+ import com.android.build.api.variant.Variant
+ import com.facebook.react.ReactExtension
+ import com.facebook.react.utils.ProjectUtils.getReactNativeArchitectures
+@@ -19,7 +18,7 @@
+   @Suppress("UnstableApiUsage")
+   fun configureReactNativeNdk(project: Project, extension: ReactExtension) {
+     project.pluginManager.withPlugin("com.android.application") {
+-      project.extensions.getByType(AndroidComponentsExtension::class.java).finalizeDsl { ext ->
++      project.androidComponents().finalizeDsl { ext ->
+         if (!project.isNewArchEnabled(extension)) {
+           // For Old Arch, we don't need to setup the NDK
+           return@finalizeDsl
 diff --git a/node_modules/@react-native/gradle-plugin/settings-plugin/build.gradle.kts b/node_modules/@react-native/gradle-plugin/settings-plugin/build.gradle.kts
-index a89a5a2..ee4e251 100644
 --- a/node_modules/@react-native/gradle-plugin/settings-plugin/build.gradle.kts
 +++ b/node_modules/@react-native/gradle-plugin/settings-plugin/build.gradle.kts
-@@ -49,7 +49,7 @@ dependencies {
+@@ -49,11 +49,11 @@
  // nice message showing that JDK 11 (or 17) is required first
  java { targetCompatibility = JavaVersion.VERSION_11 }
  
 -kotlin { jvmToolchain(17) }
-+kotlin { jvmToolchain(21) }
++kotlin { jvmToolchain(25) }
  
  tasks.withType<KotlinCompile>().configureEach {
    compilerOptions {
+-    apiVersion.set(KotlinVersion.KOTLIN_1_8)
++    apiVersion.set(KotlinVersion.KOTLIN_2_0)
+     // See comment above on JDK 11 support
+     jvmTarget.set(JvmTarget.JVM_11)
+     allWarningsAsErrors =
 diff --git a/node_modules/@react-native/gradle-plugin/settings.gradle.kts b/node_modules/@react-native/gradle-plugin/settings.gradle.kts
-index b3c46a3..14f1e9c 100644
 --- a/node_modules/@react-native/gradle-plugin/settings.gradle.kts
 +++ b/node_modules/@react-native/gradle-plugin/settings.gradle.kts
-@@ -13,7 +13,7 @@ pluginManagement {
+@@ -13,7 +13,7 @@
    }
  }
  
@@ -77,29 +271,37 @@ index b3c46a3..14f1e9c 100644
  
  include(
      ":react-native-gradle-plugin",
-diff --git a/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts b/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
-index 20d4871..e787ed1 100644
---- a/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
-+++ b/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
-@@ -20,7 +20,7 @@ dependencies { implementation(libs.junit) }
- 
- java { targetCompatibility = JavaVersion.VERSION_11 }
- 
--kotlin { jvmToolchain(17) }
-+kotlin { jvmToolchain(21) }
- 
- tasks.withType<KotlinCompile>().configureEach {
-   compilerOptions {
 diff --git a/node_modules/@react-native/gradle-plugin/shared/build.gradle.kts b/node_modules/@react-native/gradle-plugin/shared/build.gradle.kts
-index 4a9709b..81fc823 100644
 --- a/node_modules/@react-native/gradle-plugin/shared/build.gradle.kts
 +++ b/node_modules/@react-native/gradle-plugin/shared/build.gradle.kts
-@@ -26,7 +26,7 @@ dependencies {
+@@ -26,11 +26,11 @@
  
  java { targetCompatibility = JavaVersion.VERSION_11 }
  
 -kotlin { jvmToolchain(17) }
-+kotlin { jvmToolchain(21) }
++kotlin { jvmToolchain(25) }
  
  tasks.withType<KotlinCompile>().configureEach {
    compilerOptions {
+-    apiVersion.set(KotlinVersion.KOTLIN_1_8)
++    apiVersion.set(KotlinVersion.KOTLIN_2_0)
+     // See comment above on JDK 11 support
+     jvmTarget.set(JvmTarget.JVM_11)
+     allWarningsAsErrors =
+diff --git a/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts b/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
+--- a/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
++++ b/node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts
+@@ -20,11 +20,11 @@
+ 
+ java { targetCompatibility = JavaVersion.VERSION_11 }
+ 
+-kotlin { jvmToolchain(17) }
++kotlin { jvmToolchain(25) }
+ 
+ tasks.withType<KotlinCompile>().configureEach {
+   compilerOptions {
+-    apiVersion.set(KotlinVersion.KOTLIN_1_8)
++    apiVersion.set(KotlinVersion.KOTLIN_2_0)
+     // See comment above on JDK 11 support
+     jvmTarget.set(JvmTarget.JVM_11)
+     allWarningsAsErrors =

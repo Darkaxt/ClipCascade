@@ -83,8 +83,8 @@ android {
         applicationId "com.darkaxt.clipcascade"
         minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3020035
-        versionName "3.2.0.35"
+        versionCode 3020036
+        versionName "3.2.0.36"
     }
     signingConfigs {
         debug {
@@ -116,7 +116,7 @@ android {
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
             // debuggable true  // for debugging release builds only
         }
     }
@@ -124,6 +124,9 @@ android {
 
 dependencies {
     testImplementation "junit:junit:4.13.2"
+
+    // The app manifest references this service directly; match Notifee's vendored runtime.
+    implementation "app.notifee:core:202108261754"
 
     // debugImplementation "com.squareup.leakcanary:leakcanary-android:2.12"
     // releaseImplementation "com.squareup.leakcanary:leakcanary-android:2.12" // for debugging release builds only

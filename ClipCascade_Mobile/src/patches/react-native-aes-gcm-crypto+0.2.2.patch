@@ -1,8 +1,15 @@
 diff --git a/node_modules/react-native-aes-gcm-crypto/android/build.gradle b/node_modules/react-native-aes-gcm-crypto/android/build.gradle
-index 360dffb..0a2e96c 100644
 --- a/node_modules/react-native-aes-gcm-crypto/android/build.gradle
 +++ b/node_modules/react-native-aes-gcm-crypto/android/build.gradle
-@@ -66,7 +66,6 @@ android {
+@@ -38,6 +38,7 @@
+ }
+ 
+ android {
++  namespace "com.reactnativeaesgcmcrypto"
+   compileSdkVersion getExtOrIntegerDefault('compileSdkVersion')
+   buildToolsVersion getExtOrDefault('buildToolsVersion')
+   ndkVersion getExtOrDefault('ndkVersion')
+@@ -66,7 +67,6 @@
  
  repositories {
    mavenCentral()
