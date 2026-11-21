@@ -64,6 +64,11 @@ import {
 import { buildStompConnectHeaders, buildWebSocketOptions } from './AuthConfig';
 import { createForegroundServiceLifecycle } from './ForegroundServiceLifecycle';
 import { createStompTransportConfig } from './StompTransportConfig';
+import {
+  ACTIVE_STOMP_HEARTBEAT_MS,
+  nextStompHeartbeat,
+  trackScreenOffSince,
+} from './StompHeartbeatPolicy';
 import { attachClientHealth, reportClipboardDetected } from './ClientHealth';
 import { getInstalledAppVersion } from './AppVersion';
 import { registerClipboardResender, notifyClipboardResendState } from './ClipboardResend';
@@ -161,6 +166,7 @@ module.exports = async (inputData = null) => {
   const SEND_DESTINATION = '/app/cliptext';
   const RECONNECT_WS_TIMER = 10000; // 10 seconds
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
+  // P2S STOMP heartbeat follows StompHeartbeatPolicy (long while the screen is off).
   const FRAGMENT_SIZE = 15360; // 15 KiB
 
   // forground service
@@ -206,6 +212,9 @@ module.exports = async (inputData = null) => {
         let stompClient = null;
         let stompDisconnectedSince = null;
         let lastStompRecoveryAt = 0;
+        let stompHeartbeatMs = ACTIVE_STOMP_HEARTBEAT_MS;
+        let screenOffSince = null;
+        let intentionalStompReconnect = false;
         let wsSignalingClient = null;
         let sendClipBoardP2S = null;
         let sendClipBoardP2P = null;
@@ -1037,7 +1046,7 @@ module.exports = async (inputData = null) => {
             connectHeaders: buildStompConnectHeaders(authSettings),
             ...createStompTransportConfig({
               reconnectDelay: RECONNECT_WS_TIMER,
-              heartbeatIncoming: HEARTBEAT_INTERVAL,
+              heartbeatIncoming: stompHeartbeatMs,
             }),
             forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
@@ -1055,6 +1064,7 @@ module.exports = async (inputData = null) => {
               });
               stompDisconnectedSince = null;
               lastStompRecoveryAt = 0;
+              intentionalStompReconnect = false;
               notifyClipboardResendState();
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
@@ -1217,6 +1227,7 @@ module.exports = async (inputData = null) => {
                 `⚠️ WebSocket Close: ${reason}`,
               );
               if (
+                !intentionalStompReconnect &&
                 runtimeSettings.enable_websocket_status_notification ===
                   'true' &&
                 websocket_status_notification_toggle == false &&
@@ -2535,6 +2546,37 @@ module.exports = async (inputData = null) => {
                 'true',
               );
               break;
+            }
+
+            if (server_mode === 'P2S' && stompClient) {
+              const now = Date.now();
+              const interactive = NativeBridgeModule.isInteractive?.() !== false;
+              screenOffSince = trackScreenOffSince({ interactive, screenOffSince, now });
+              const nextHeartbeat = nextStompHeartbeat({
+                interactive,
+                screenOffSince,
+                now,
+                current: stompHeartbeatMs,
+              });
+              if (nextHeartbeat != null) {
+                stompHeartbeatMs = nextHeartbeat;
+                stompClient.heartbeatIncoming = nextHeartbeat;
+                logServiceLifecycle('STOMP heartbeat renegotiating', {
+                  heartbeatIncoming: nextHeartbeat,
+                  interactive,
+                });
+                // Heartbeats are fixed per CONNECT, so reconnect to apply.
+                if (stompClient.connected) {
+                  intentionalStompReconnect = true;
+                  try {
+                    await stompClient.deactivate();
+                    stompClient.activate();
+                  } catch (error) {
+                    intentionalStompReconnect = false;
+                    warnServiceLifecycle('STOMP heartbeat renegotiation failed', error);
+                  }
+                }
+              }
             }
 
             if (

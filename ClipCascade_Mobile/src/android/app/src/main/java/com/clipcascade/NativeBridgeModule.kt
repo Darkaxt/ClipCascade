@@ -85,6 +85,14 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return "NativeBridgeModule"
     }
 
+    // Screen state for the service loop's STOMP heartbeat policy. Defaults to
+    // interactive so a failure never lengthens the heartbeat.
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun isInteractive(): Boolean {
+        val power = reactApplicationContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        return power?.isInteractive ?: true
+    }
+
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun setServiceHealthPhase(phase: String): Boolean {
         serviceHealthPhase = phase
