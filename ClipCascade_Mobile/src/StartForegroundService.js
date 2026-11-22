@@ -66,7 +66,10 @@ import { createForegroundServiceLifecycle } from './ForegroundServiceLifecycle';
 import { createStompTransportConfig } from './StompTransportConfig';
 import {
   ACTIVE_STOMP_HEARTBEAT_MS,
+  isStompScreenIdle,
   nextStompHeartbeat,
+  shouldAnnounceConnectionLost,
+  stompRetryPolicy,
   trackScreenOffSince,
 } from './StompHeartbeatPolicy';
 import { attachClientHealth, reportClipboardDetected } from './ClientHealth';
@@ -214,6 +217,10 @@ module.exports = async (inputData = null) => {
         let lastStompRecoveryAt = 0;
         let stompHeartbeatMs = ACTIVE_STOMP_HEARTBEAT_MS;
         let screenOffSince = null;
+        let stompScreenIdle = false;
+        let stompWokeAt = null;
+        let stompWakeRecovery = false;
+        let stompRecoveryIntervalMs = STOMP_RECOVERY_CHECK_INTERVAL_MS;
         let intentionalStompReconnect = false;
         let wsSignalingClient = null;
         let sendClipBoardP2S = null;
@@ -1228,6 +1235,11 @@ module.exports = async (inputData = null) => {
               );
               if (
                 !intentionalStompReconnect &&
+                shouldAnnounceConnectionLost({
+                  idle: stompScreenIdle,
+                  wokeAt: stompWokeAt,
+                  now: Date.now(),
+                }) &&
                 runtimeSettings.enable_websocket_status_notification ===
                   'true' &&
                 websocket_status_notification_toggle == false &&
@@ -2577,20 +2589,33 @@ module.exports = async (inputData = null) => {
                   }
                 }
               }
+
+              const wasIdle = stompScreenIdle;
+              stompScreenIdle = isStompScreenIdle({ interactive, screenOffSince, now });
+              const retry = stompRetryPolicy({ idle: stompScreenIdle });
+              stompClient.reconnectDelay = retry.reconnectDelay;
+              stompRecoveryIntervalMs = retry.recoveryIntervalMs;
+              if (wasIdle && !stompScreenIdle) {
+                stompWokeAt = now;
+                // A retry scheduled while idle may be minutes away: reconnect now.
+                stompWakeRecovery = !stompClient.connected;
+              }
             }
 
             if (
               server_mode === 'P2S' &&
               stompClient &&
-              shouldRestartDisconnectedStomp({
-                connected: stompClient.connected,
-                active: stompClient.active,
-                disconnectedSince: stompDisconnectedSince,
-                lastRecoveryAt: lastStompRecoveryAt,
-                now: Date.now(),
-                recoveryIntervalMs: STOMP_RECOVERY_CHECK_INTERVAL_MS,
-              })
+              ((stompWakeRecovery && !stompClient.connected) ||
+                shouldRestartDisconnectedStomp({
+                  connected: stompClient.connected,
+                  active: stompClient.active,
+                  disconnectedSince: stompDisconnectedSince,
+                  lastRecoveryAt: lastStompRecoveryAt,
+                  now: Date.now(),
+                  recoveryIntervalMs: stompRecoveryIntervalMs,
+                }))
             ) {
+              stompWakeRecovery = false;
               lastStompRecoveryAt = Date.now();
               warnServiceLifecycle(
                 'STOMP recovery heartbeat restarting disconnected client',

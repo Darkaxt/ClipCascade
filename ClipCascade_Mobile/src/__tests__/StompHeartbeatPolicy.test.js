@@ -2,7 +2,14 @@ import {
   ACTIVE_STOMP_HEARTBEAT_MS,
   IDLE_STOMP_HEARTBEAT_MS,
   SCREEN_OFF_GRACE_MS,
+  ACTIVE_STOMP_RECONNECT_DELAY_MS,
+  ACTIVE_STOMP_RECOVERY_INTERVAL_MS,
+  IDLE_STOMP_RETRY_MS,
+  WAKE_RECONNECT_GRACE_MS,
+  isStompScreenIdle,
   nextStompHeartbeat,
+  shouldAnnounceConnectionLost,
+  stompRetryPolicy,
   trackScreenOffSince,
 } from '../StompHeartbeatPolicy';
 
@@ -44,5 +51,35 @@ describe('StompHeartbeatPolicy', () => {
     expect(
       nextStompHeartbeat({ interactive: true, screenOffSince: null, now: 0, current: IDLE_STOMP_HEARTBEAT_MS }),
     ).toBe(ACTIVE_STOMP_HEARTBEAT_MS);
+  });
+
+  test('treats the screen as idle only after the screen-off grace period', () => {
+    expect(isStompScreenIdle({ interactive: true, screenOffSince: null, now: 0 })).toBe(false);
+    expect(
+      isStompScreenIdle({ interactive: false, screenOffSince: 0, now: SCREEN_OFF_GRACE_MS - 1 }),
+    ).toBe(false);
+    expect(
+      isStompScreenIdle({ interactive: false, screenOffSince: 0, now: SCREEN_OFF_GRACE_MS }),
+    ).toBe(true);
+  });
+
+  test('retries slowly while idle and at the normal pace otherwise', () => {
+    expect(stompRetryPolicy({ idle: true })).toEqual({
+      reconnectDelay: IDLE_STOMP_RETRY_MS,
+      recoveryIntervalMs: IDLE_STOMP_RETRY_MS,
+    });
+    expect(stompRetryPolicy({ idle: false })).toEqual({
+      reconnectDelay: ACTIVE_STOMP_RECONNECT_DELAY_MS,
+      recoveryIntervalMs: ACTIVE_STOMP_RECOVERY_INTERVAL_MS,
+    });
+  });
+
+  test('stays quiet about lost connections while idle and just after wake', () => {
+    expect(shouldAnnounceConnectionLost({ idle: true, wokeAt: null, now: 0 })).toBe(false);
+    expect(shouldAnnounceConnectionLost({ idle: false, wokeAt: 100, now: 100 })).toBe(false);
+    expect(
+      shouldAnnounceConnectionLost({ idle: false, wokeAt: 0, now: WAKE_RECONNECT_GRACE_MS }),
+    ).toBe(true);
+    expect(shouldAnnounceConnectionLost({ idle: false, wokeAt: null, now: 5 })).toBe(true);
   });
 });
