@@ -8,6 +8,10 @@ import types
 
 from PyInstaller.archive.readers import CArchiveReader
 
+# Windows SilentCleanup deletes stale files under %TEMP%, which breaks the Tk UI of a
+# long-running onefile client; the spec extracts under %LOCALAPPDATA% instead.
+EXPECTED_RUNTIME_OPTION = r"pyi-runtime-tmpdir %LOCALAPPDATA%\ClipCascade\runtime"
+
 
 def normalize(code):
     constants = tuple(normalize(value) if isinstance(value, types.CodeType) else value
@@ -42,11 +46,15 @@ def main():
         name = next(key for key in archive.toc if key.replace('\\', '/') == 'logo/ui/' + asset.name)
         if archive.extract(name) != asset.read_bytes():
             raise RuntimeError(f'Packaged control artwork changed: {asset.name}')
+    runtime_dirs = [opt for opt in archive.options if opt.startswith("pyi-runtime-tmpdir ")]
+    if runtime_dirs != [EXPECTED_RUNTIME_OPTION]:
+        raise RuntimeError(f"Onefile runtime must stay out of %TEMP%: {runtime_dirs}")
     print(json.dumps({
         "ok": True, "file": str(executable), "bytes": executable.stat().st_size,
         "sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "source_matched_modules": modules,
         "control_assets_verified": len(controls),
+        "runtime_tmpdir": EXPECTED_RUNTIME_OPTION.split(" ", 1)[1],
     }, indent=2))
 
 

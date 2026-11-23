@@ -27,6 +27,18 @@ class AuditClientHealthTests(unittest.TestCase):
         self.assertNotIn('never print', output.getvalue())
         self.assertNotIn('cck_private', output.getvalue())
 
+    def test_probe_rereads_until_pending_acks_arrive(self):
+        def status(value):
+            return io.StringIO(json.dumps({'mode': 'P2S', 'supported': True,
+                                           'connections': [{'status': value}]}))
+        opener = Mock()
+        opener.open.side_effect = [io.StringIO('{}'), status('pending'), status('acknowledged')]
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['audit', '--server-url', 'https://server.test', '--key-file', 'private.key', '--probe']),                 patch.object(audit_client_health.Path, 'read_text', return_value='cck_private'),                 patch.object(audit_client_health.time, 'sleep'),                 patch.object(audit_client_health, 'build_opener', return_value=opener), contextlib.redirect_stdout(output):
+            self.assertEqual(audit_client_health.main(), 0)
+        self.assertEqual([call.args[0].method for call in opener.open.call_args_list], ['POST', 'GET', 'GET'])
+        self.assertEqual(json.loads(output.getvalue())['connections'][0]['status'], 'acknowledged')
+
     def test_refused_key_is_reported_without_response_body_or_secret(self):
         opener = Mock()
         opener.open.side_effect = HTTPError('https://server.test', 403, 'secret response', {}, None)

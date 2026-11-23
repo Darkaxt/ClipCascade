@@ -1,4 +1,5 @@
-param([Parameter(Mandatory=$true)][ValidateSet('Verify','Android','Windows')][string]$Stage)
+param([Parameter(Mandatory=$true)][ValidateSet('Verify','Android','Windows')][string]$Stage,
+      [string]$BuildTicket, [string]$BuildAttempt)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $versions = Get-Content (Join-Path $repo 'version.json') -Raw | ConvertFrom-Json
@@ -37,7 +38,9 @@ if ($Stage -eq 'Verify') {
     $env:NINJA_NUM_JOBS = '2'
     $log = "$release\verification\android-build-$stamp.log"
     $ErrorActionPreference = 'Continue'
-    & python C:\Users\darka\.agents\skills\gradle-build-gate\scripts\invoke_gradle_build_gate.py run --project "$repo\ClipCascade_Mobile\src\android" --owner-task "Verify native contracts and package Android $version" --gradle-heap-gb 3 --kotlin-heap-gb 3 --log $log -- '-Dorg.gradle.java.installations.auto-detect=false' '-Dorg.gradle.java.installations.auto-download=false' "-Dorg.gradle.java.installations.paths=$env:JAVA_HOME" :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+    if (-not $BuildTicket -or -not $BuildAttempt) { throw 'Android stage needs -BuildTicket and -BuildAttempt from coordinator-client gradle build-prepare' }
+    $coordinator = Join-Path $env:LOCALAPPDATA 'Tools\llm-coordinator\bin\coordinator-client.exe'
+    & $coordinator gradle run --project "$repo\ClipCascade_Mobile\src\android" --build-ticket $BuildTicket --build-attempt $BuildAttempt --owner-task "Verify native contracts and package Android $version" -- '-Dorg.gradle.java.installations.auto-detect=false' '-Dorg.gradle.java.installations.auto-download=false' "-Dorg.gradle.java.installations.paths=$env:JAVA_HOME" :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease *> $log
     $result = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($result -ne 0) { throw "Gradle gate failed: $result" }

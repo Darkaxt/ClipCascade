@@ -26,6 +26,9 @@ jest.mock('lucide-react-native', () => {
 });
 
 global.IS_REACT_ACT_ENVIRONMENT = true;
+// The first render lazily transforms React Native internals; with a cold jest cache
+// (fresh release scratch) that alone took ~5 s, over jest's default 5 s timeout.
+jest.setTimeout(30000);
 const button = (tree, label) =>
   tree.root
     .findAllByType(TouchableOpacity)

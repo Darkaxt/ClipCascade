@@ -29,19 +29,25 @@ class ActivityWindow(tk.Toplevel):
         self._events = {}
         self._rendered_rows = None
         self._rendered_secondary = None
-        self.title('ClipCascade')
-        apply_clipboard_window_icon(self)
-        self.geometry('1120x680')
-        self.minsize(800, 520)
-        center_window(self)
-        self.style = apply_theme(self)
-        self.icons = Icons(self)
-        self.query = tk.StringVar(master=self)
-        self.filter_mode = 'All'
-        self.feedback_text = tk.StringVar(master=self)
-        self._build()
-        self.query.trace_add('write', lambda *_: self.refresh())
-        self.refresh()
+        try:
+            self.title('ClipCascade')
+            apply_clipboard_window_icon(self)
+            self.geometry('1120x680')
+            self.minsize(800, 520)
+            center_window(self)
+            self.style = apply_theme(self)
+            self.icons = Icons(self)
+            self.query = tk.StringVar(master=self)
+            self.filter_mode = 'All'
+            self.feedback_text = tk.StringVar(master=self)
+            self._build()
+            self.query.trace_add('write', lambda *_: self.refresh())
+            self.refresh()
+        except Exception:
+            # Never leave a half-built, empty window behind; the caller reports the error.
+            self._closed = True
+            self.destroy()
+            raise
         self.protocol("WM_DELETE_WINDOW", self.close)
         self.after(1000, self._refresh_loop)
 

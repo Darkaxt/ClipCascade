@@ -29,6 +29,24 @@ if PLATFORM != WINDOWS:
 TRAY_REGISTRATION_HEARTBEAT_SECONDS = 30
 
 
+def show_error_without_tk(message):
+    """Report an error even when Tk itself cannot build windows."""
+    if PLATFORM == WINDOWS:
+        import ctypes
+
+        # MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TOPMOST; own thread so Tk keeps running.
+        threading.Thread(
+            target=ctypes.windll.user32.MessageBoxW,
+            args=(None, message, "ClipCascade", 0x0 | 0x10 | 0x10000 | 0x40000),
+            daemon=True,
+        ).start()
+        return
+    try:
+        CustomDialog(message, msg_type="error").mainloop()
+    except Exception as e:
+        logging.error(f"Failed to show error dialog: {e}")
+
+
 class TaskbarPanel:
     def __init__(
         self,
@@ -371,10 +389,12 @@ class TaskbarPanel:
                 )
             except Exception as e:
                 mark_inactive()
-                CustomDialog(
-                    f"Failed to open activity window.\nError: {e}",
-                    msg_type="error",
-                ).mainloop()
+                logging.error(f"Failed to open activity window: {e}")
+                show_error_without_tk(
+                    "ClipCascade could not open its window. Quit and restart "
+                    "ClipCascade; if this keeps happening, check the log.\n\n"
+                    f"Error: {e}"
+                )
 
         if not self._schedule_tk_task(open_window):
             mark_inactive()

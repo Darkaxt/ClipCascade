@@ -32,7 +32,10 @@ exe = EXE(
     strip=False,
     upx=True,
     upx_exclude=[],
-    runtime_tmpdir=None,
+    # Keep the onefile runtime out of %TEMP%: Windows Storage Sense/SilentCleanup deletes
+    # extracted files a long-running client has not touched for days (Tk scripts, icons).
+    # The Windows bootloader expands environment variables in this path.
+    runtime_tmpdir=r'%LOCALAPPDATA%\ClipCascade\runtime',
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,

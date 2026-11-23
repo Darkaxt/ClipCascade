@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import ssl
 import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import build_opener, HTTPSHandler, HTTPRedirectHandler, Request
@@ -20,6 +21,8 @@ def main():
     parser.add_argument('--server-url', required=True)
     parser.add_argument('--key-file', required=True)
     parser.add_argument('--probe', action='store_true', help='Issue silent probes before reading status')
+    parser.add_argument('--ack-wait-seconds', type=float, default=5.0,
+                        help='After --probe, re-read while probes are still pending (ACKs take ~100 ms)')
     args = parser.parse_args()
     url = args.server_url.rstrip('/')
     parsed = urlsplit(url)
@@ -41,6 +44,12 @@ def main():
         if args.probe:
             request('/api/client-health/probes', 'POST')
         status = request('/api/client-health')
+        # Reading immediately after probing races the ACKs and reports false 'pending' rows.
+        deadline = time.monotonic() + (args.ack_wait_seconds if args.probe else 0)
+        while (any(row.get('status') == 'pending' for row in status.get('connections', []))
+               and time.monotonic() < deadline):
+            time.sleep(0.5)
+            status = request('/api/client-health')
         fields = ('sessionId', 'clientId', 'clientName', 'platform', 'version',
                   'status', 'probeId', 'probedAt', 'acknowledgedAt',
                   'clipboardDetectedAt', 'clipboardType')
